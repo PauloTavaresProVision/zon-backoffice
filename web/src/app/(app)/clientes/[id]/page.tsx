@@ -13,7 +13,8 @@ import { BLOCKED_INTERNET, CONTRACT_STATUS, INTERNET_STATUS } from "@/lib/ixc";
 import { typeLabel } from "@/lib/officegest";
 import { activityFeed, clientContracts, clientInvoices, clientPayments, getClient, openReference, recentSms } from "@/lib/queries";
 import { billingFor } from "@/lib/boxes/device";
-import { currentGrid } from "@/lib/boxes/grid";
+import { gridSnapshot, resolveGrid, versionLabel } from "@/lib/boxes/grid";
+import { planGridId } from "@/lib/channels/queries";
 import { customerBoxes, pendingEnrollments } from "@/lib/boxes/queries";
 import { boxView } from "@/lib/boxes/view";
 import { ActionButton } from "@/components/action-button";
@@ -56,7 +57,7 @@ export default async function ClientePage({ params }: Props) {
   const today = isoDay();
   const mode = cycleMode();
   const devMocks = !!env().DEV_MOCKS_URL;
-  const [pays, invs, open, feed, ixcData, sms, boxes, waiting, grid] = await Promise.all([
+  const [pays, invs, open, feed, ixcData, sms, boxes, waiting, snap, planGrid] = await Promise.all([
     clientPayments(c.id),
     clientInvoices(c.id),
     openReference(c.id),
@@ -65,8 +66,11 @@ export default async function ClientePage({ params }: Props) {
     recentSms({ customerId: c.id, limit: 6 }),
     customerBoxes(c.id),
     pendingEnrollments(4),
-    currentGrid(),
+    gridSnapshot(),
+    planGridId(c.planId),
   ]);
+  // A grelha que as boxes do cliente devem ter (a do plano ou a predefinida)
+  const grid = resolveGrid(snap, planGrid);
   // O que as boxes do cliente mostram nas Definições da app
   const tv = boxes.length ? await billingFor(c.id) : null;
   const st = CLIENT_STATE[clientState(c, today)];
@@ -299,7 +303,7 @@ export default async function ClientePage({ params }: Props) {
                   <div className="kv-list">
                     <div className="kv-row"><span>Último contacto</span><strong>{x.lastSeenAt ? `${dateTime(x.lastSeenAt)} · ${ago(x.lastSeenAt)}` : "ainda não sincronizou"}</strong></div>
                     <div className="kv-row"><span>Versão da app</span><strong>{x.appVersion ? `${x.appVersion}${x.osVersion ? ` · Android ${x.osVersion}` : ""}` : "—"}</strong></div>
-                    <div className="kv-row"><span>Grelha</span><strong>{x.gridVersion ? `v${x.gridVersion}${x.gridVersion === grid.version ? "" : ` · a passar para v${grid.version}`}` : "—"}</strong></div>
+                    <div className="kv-row"><span>Grelha</span><strong>{x.gridVersion ? `${versionLabel(snap, x.gridVersion)}${x.gridVersion === grid.version ? "" : ` · a passar para ${versionLabel(snap, grid.version) ?? grid.name}`}` : "—"}</strong></div>
                     <div className="kv-row"><span>Na TV (Definições)</span><strong>{tv?.pending ? `Ref. ${refFmt(tv.pending.reference)} · ${kz(tv.pending.amountKz)}` : tv?.nextPayment ? `Próximo pagamento ${date(tv.nextPayment.date)}` : "—"}</strong></div>
                     <div className="kv-row"><span>Aprovada</span><strong>{date(x.approvedAt)}{approvedBy ? ` · ${approvedBy}` : ""}</strong></div>
                   </div>

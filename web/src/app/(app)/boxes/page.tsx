@@ -2,7 +2,7 @@ import { KeyRound, Tv } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { canEdit, requireUser } from "@/lib/auth/session";
-import { currentGrid } from "@/lib/boxes/grid";
+import { gridSnapshot, resolveGrid, versionLabel } from "@/lib/boxes/grid";
 import { boxStats, listBoxes, pendingEnrollments } from "@/lib/boxes/queries";
 import { boxView, parseBoxFilter, type BoxFilter } from "@/lib/boxes/view";
 import { env } from "@/lib/env";
@@ -29,12 +29,13 @@ export default async function BoxesPage({ searchParams }: { searchParams: Search
   const q = (sp.q ?? "").slice(0, 80);
   const page = pageParam(sp.pagina);
   const editor = canEdit(user);
-  const [stats, { rows, total }, pending, grid] = await Promise.all([
+  const [stats, { rows, total }, pending, snap] = await Promise.all([
     boxStats(),
     listBoxes({ filter, q, page, pageSize: PAGE }),
     pendingEnrollments(20),
-    currentGrid(),
+    gridSnapshot(),
   ]);
+  const base = resolveGrid(snap, null);
   const pages = Math.max(1, Math.ceil(total / PAGE));
   const from = total ? (page - 1) * PAGE + 1 : 0;
   const host = new URL(env().APP_URL).host;
@@ -98,8 +99,9 @@ export default async function BoxesPage({ searchParams }: { searchParams: Search
           <table className="data responsive">
             <thead><tr><th>Box</th><th>Cliente</th><th>Grelha</th><th>Estado</th><th>App</th><th>Último contacto</th></tr></thead>
             <tbody>
-              {rows.length ? rows.map(({ box: x, customer: c }) => {
+              {rows.length ? rows.map(({ box: x, customer: c, planGridId }) => {
                 const v = boxView(x, c);
+                const expected = resolveGrid(snap, planGridId);
                 const device = v === "online" ? "" : v === "blocked" || v === "disabled" ? " blocked" : " off";
                 const cell = (
                   <>
@@ -114,7 +116,12 @@ export default async function BoxesPage({ searchParams }: { searchParams: Search
                     </td>
                     <td className="o3"><div><span>{c?.name ?? "Sem cliente"}</span>{c ? <span className="cell-sub">IXC {c.ixcId}</span> : null}</div></td>
                     <td className="hide-sm">
-                      {x.gridVersion ? <div><span>v{x.gridVersion}</span><span className="cell-sub">{x.gridVersion === grid.version ? "atualizada" : `a passar para v${grid.version}`}</span></div> : <span className="muted">—</span>}
+                      {x.gridVersion ? (
+                        <div>
+                          <span>{versionLabel(snap, x.gridVersion)}</span>
+                          <span className="cell-sub">{x.gridVersion === expected.version ? "atualizada" : `a passar para ${versionLabel(snap, expected.version) ?? expected.name}`}</span>
+                        </div>
+                      ) : <span className="muted">—</span>}
                     </td>
                     <td className="o2 right"><Pill s={BOX_STATE[v]} /></td>
                     <td className="hide-sm">{x.appVersion ? <div><span className="mono">{x.appVersion}</span>{x.osVersion ? <span className="cell-sub">Android {x.osVersion}</span> : null}</div> : <span className="muted">—</span>}</td>
@@ -132,7 +139,7 @@ export default async function BoxesPage({ searchParams }: { searchParams: Search
           </table>
         </div>
         <div className="table-foot">
-          <span>{total ? `A mostrar ${int(from)}–${int(from + rows.length - 1)} de ${int(total)}` : "Sem resultados"} · {grid.name.toLowerCase()} v{grid.version} ({int(grid.channels.length)} canais)</span>
+          <span>{total ? `A mostrar ${int(from)}–${int(from + rows.length - 1)} de ${int(total)}` : "Sem resultados"} · predefinida: {versionLabel(snap, base.version) ?? base.name} ({int(base.channels.length)} canais)</span>
           <Pager page={page} pages={pages} href={(p) => withParams("/boxes", sp, { pagina: p })} />
         </div>
       </article>

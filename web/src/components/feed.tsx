@@ -1,6 +1,6 @@
 import {
-  BookCheck, CircleCheck, CircleSlash, FileText, FileX, KeyRound, Landmark, Link2, Lock, LockOpen, LogIn, LogOut, MessageSquare, MessageSquareX, Power,
-  PowerOff, Send, TriangleAlert, Tv, Unlink, UserCog, UserPlus, type LucideIcon,
+  BookCheck, CircleCheck, CircleSlash, FileText, FileUp, FileX, KeyRound, Landmark, Link2, ListPlus, ListVideo, Lock, LockOpen, LogIn, LogOut, MessageSquare,
+  MessageSquareX, Pencil, Power, PowerOff, Send, Trash2, TriangleAlert, Tv, Unlink, UserCog, UserPlus, type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { dateTime } from "@/lib/format";
@@ -27,6 +27,13 @@ const KINDS: Record<string, { Icon: LucideIcon; tone?: "good" | "gold" | "crit" 
   "box.blocked": { Icon: Lock, tone: "crit" },
   "box.unblocked": { Icon: LockOpen, tone: "good" },
   "box.removed": { Icon: Unlink },
+  "channel.created": { Icon: ListPlus },
+  "channel.updated": { Icon: Pencil },
+  "channel.imported": { Icon: FileUp },
+  "grid.created": { Icon: ListVideo },
+  "grid.updated": { Icon: ListVideo },
+  "grid.deleted": { Icon: Trash2, tone: "crit" },
+  "grid.published": { Icon: Send, tone: "good" },
   "user.created": { Icon: UserPlus },
   "user.updated": { Icon: UserCog },
   login: { Icon: LogIn },

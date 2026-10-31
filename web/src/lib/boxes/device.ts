@@ -4,7 +4,7 @@ import { and, asc, count, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { isoDay } from "@/lib/format";
 import { allow } from "@/lib/rate-limit";
-import { currentGrid } from "./grid";
+import { gridFor } from "./grid";
 import { billing, boxState, normalizeSerial, parsePayload, parsePublicKey, verifySignature, type Billing, type BoxState } from "./protocol";
 
 /** Erro com o código HTTP que a app espera (403 = ainda não autorizada). */
@@ -116,7 +116,7 @@ export async function sync(body: Record<string, unknown>, ip: string): Promise<S
     leaseSeconds: LEASE_SECONDS,
   };
   if (state === "active") {
-    const grid = await currentGrid();
+    const grid = await gridFor(customer?.gridId);
     result.version = grid.version;
     result.channels = grid.channels;
   }
@@ -125,7 +125,7 @@ export async function sync(body: Record<string, unknown>, ip: string): Promise<S
 
 async function customerOf(id: number) {
   const [row] = await db()
-    .select({ id: schema.customers.id, name: schema.customers.name, status: schema.customers.status, disabledAt: schema.customers.disabledAt, planName: schema.plans.name })
+    .select({ id: schema.customers.id, name: schema.customers.name, status: schema.customers.status, disabledAt: schema.customers.disabledAt, planName: schema.plans.name, gridId: schema.plans.gridId })
     .from(schema.customers)
     .leftJoin(schema.plans, eq(schema.plans.id, schema.customers.planId))
     .where(eq(schema.customers.id, id))

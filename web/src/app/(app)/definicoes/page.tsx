@@ -2,7 +2,7 @@ import { CircleCheck, CircleDashed, CircleX, Database, Lock, Play, Plug, Shield,
 import type { Metadata } from "next";
 import Link from "next/link";
 import { canEdit, requireUser } from "@/lib/auth/session";
-import { currentGrid } from "@/lib/boxes/grid";
+import { gridSnapshot, resolveGrid, versionLabel } from "@/lib/boxes/grid";
 import { boxStats } from "@/lib/boxes/queries";
 import { appypayConfig, cycleMode, env, ixcConfig, officegestConfig, smsConfig } from "@/lib/env";
 import { ago, date, dateTime, int, phoneFmt } from "@/lib/format";
@@ -29,12 +29,13 @@ export default async function DefinicoesPage() {
   const ap = appypayConfig();
   const sms = smsConfig();
   const mode = cycleMode();
-  const [jobs, link, boxes, grid] = await Promise.all([
+  const [jobs, link, boxes, snap] = await Promise.all([
     jobStatus(),
     og ? officegestLinkStats(og.consumerNif) : Promise.resolve(null),
     boxStats(),
-    currentGrid(),
+    gridSnapshot(),
   ]);
+  const grid = resolveGrid(snap, null);
   const appUrl = new URL(env().APP_URL);
   const https = appUrl.protocol === "https:";
   const sync = jobs.last.get(JOBS.sync.name);
@@ -169,7 +170,7 @@ export default async function DefinicoesPage() {
                     <div className="kv-row"><span>Servidor a pôr na box</span><strong className="mono">{appUrl.origin}</strong></div>
                     <div className="kv-row"><span>Boxes</span><strong>{int(boxes.online)} ligadas · {int(boxes.total)} aprovadas</strong></div>
                     <div className="kv-row"><span>Por aprovar</span><strong>{boxes.pending ? <Link href="/boxes">{int(boxes.pending)} pedidos</Link> : "nenhum"}</strong></div>
-                    <div className="kv-row"><span>Grelha</span><strong>{grid.name} v{grid.version} · {int(grid.channels.length)} canais</strong></div>
+                    <div className="kv-row"><span>Grelhas</span><strong><Link href="/canais">{int(snap.byGrid.size)} publicada{snap.byGrid.size === 1 ? "" : "s"}</Link> · predefinida {versionLabel(snap, grid.version) ?? grid.name} ({int(grid.channels.length)} canais)</strong></div>
                     <div className="kv-row"><span>Na TV (Definições)</span><strong>nome, referência por pagar, próximo pagamento</strong></div>
                   </div>
                   {!https ? <small className="sms-fail" style={{ fontSize: 12 }}>A app só aceita servidores HTTPS: o APP_URL tem de ser o endereço público com certificado.</small> : null}
