@@ -12,7 +12,7 @@ export default async function CanaisPage() {
       eyebrow="Serviço"
       title="Canais & grelhas"
       Icon={ListVideo}
-      lead="O editor de grelhas e o catálogo de canais estão desenhados no mockup. Ficam ativos quando a API das TvBox estiver ligada."
+      lead="As boxes já recebem a grelha base (185 canais) do backoffice. O editor de grelhas e o catálogo de canais estão desenhados no mockup e chegam a seguir."
       items={[
         "Catálogo de canais com logótipos e categorias",
         "Grelhas por plano, com rascunho e publicação por versões",

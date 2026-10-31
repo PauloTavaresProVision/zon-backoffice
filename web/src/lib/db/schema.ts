@@ -213,6 +213,57 @@ export const smsMessages = pgTable("sms_messages", {
   index("sms_at_idx").on(t.at),
 ]);
 
+/* ---------- Boxes (app ZON TV) ---------- */
+
+// Box aprovada. O serial é só a etiqueta; quem prova a identidade é a chave RSA gerada na box (fingerprint = SHA-256 da chave).
+export const boxes = pgTable("boxes", {
+  id: serial("id").primaryKey(),
+  serial: text("serial").notNull().unique(),
+  customerId: integer("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  publicKey: text("public_key").notNull(),
+  fingerprint: text("fingerprint").notNull().unique(),
+  model: text("model"),
+  serialSource: text("serial_source"), // android | label
+  blockedAt: timestamp("blocked_at", { withTimezone: true }),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+  approvedBy: integer("approved_by").references(() => users.id, { onDelete: "set null" }),
+  // O que a box diz de si em cada sincronização
+  appVersion: text("app_version"),
+  osVersion: text("os_version"),
+  gridVersion: integer("grid_version"),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  createdAt: createdAt(),
+}, (t) => [index("boxes_customer_idx").on(t.customerId), index("boxes_seen_idx").on(t.lastSeenAt)]);
+
+// Pedidos de ativação feitos pela box, à espera de aprovação no backoffice.
+export const boxEnrollments = pgTable("box_enrollments", {
+  id: serial("id").primaryKey(),
+  serial: text("serial").notNull(),
+  publicKey: text("public_key").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  model: text("model"),
+  serialSource: text("serial_source"),
+  createdAt: createdAt(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("box_enrollments_key").on(t.serial, t.fingerprint), index("box_enrollments_seen_idx").on(t.lastSeenAt)]);
+
+// Desafios de uma só utilização (60 s) para a box assinar na sincronização.
+export const boxChallenges = pgTable("box_challenges", {
+  nonce: text("nonce").primaryKey(),
+  serial: text("serial").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (t) => [index("box_challenges_expires_idx").on(t.expiresAt)]);
+
+// Grelhas publicadas para as boxes. Por agora há uma só, a base; as grelhas por plano vêm com o editor.
+export const gridReleases = pgTable("grid_releases", {
+  version: serial("version").primaryKey(),
+  name: text("name").notNull(),
+  channels: jsonb("channels").$type<GridChannel[]>().notNull(),
+  createdAt: createdAt(),
+});
+
+export type GridChannel = { number: number; name: string; ip: string; port: number; category: string };
+
 /* ---------- Simulação do ciclo ---------- */
 
 // O que o ciclo faria, em modo simulação. Cada execução substitui a anterior.
@@ -267,3 +318,5 @@ export type Invoice = typeof invoices.$inferSelect;
 export type Contract = typeof contracts.$inferSelect;
 export type Receivable = typeof receivables.$inferSelect;
 export type SmsMessage = typeof smsMessages.$inferSelect;
+export type Box = typeof boxes.$inferSelect;
+export type BoxEnrollment = typeof boxEnrollments.$inferSelect;

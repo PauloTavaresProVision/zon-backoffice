@@ -15,6 +15,13 @@
       "when": 1793453793654,
       "tag": "0001_ciclo_cobranca",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793456253489,
+      "tag": "0002_boxes",
+      "breakpoints": true
     }
   ]
 }

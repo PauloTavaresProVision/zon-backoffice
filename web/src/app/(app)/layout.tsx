@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/auth/session";
 import { ago, initials, int } from "@/lib/format";
 import { JOBS } from "@/lib/jobs";
 import { appypayConfig, cycleMode, ixcConfig, officegestConfig } from "@/lib/env";
+import { boxStats } from "@/lib/boxes/queries";
 import { clientCounts, jobStatus } from "@/lib/queries";
 import { ZonLogo } from "@/components/logo";
 import { MobileNav, SidebarNav } from "@/components/nav";
@@ -15,7 +16,7 @@ const ROLE_LABEL = { admin: "Administrador", operador: "Operador", consulta: "Co
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const [counts, jobs] = await Promise.all([clientCounts(), jobStatus()]);
+  const [counts, jobs, boxes] = await Promise.all([clientCounts(), jobStatus(), boxStats()]);
   const og = officegestConfig();
   const sync = jobs.last.get(JOBS.sync.name);
   const ogOk = !!og && (!sync || sync.ok !== false);
@@ -32,7 +33,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     row("OfficeGest", !!og, JOBS.sync.name, "por sincronizar"),
     mode === "desligado" && ixcConfig() ? { name: "IXC Zon", dot: "off", meta: "ciclo desligado" } : row("IXC Zon", !!ixcConfig(), JOBS.ixcSync.name, "por sincronizar"),
     row("AppyPay", !!appypayConfig(), JOBS.confirm.name, mode === "ativo" ? "à espera" : "sem referências"),
-    { name: "TvBox API", dot: "off", meta: "por ligar" },
+    boxes.pending
+      ? { name: "Boxes", dot: "warn", meta: `${int(boxes.pending)} por aprovar` }
+      : { name: "Boxes", dot: boxes.online ? "" : "off", meta: boxes.total ? `${int(boxes.online)} ligadas` : "sem boxes" },
   ];
 
   return (

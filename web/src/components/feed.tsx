@@ -1,6 +1,6 @@
 import {
-  BookCheck, CircleCheck, CircleSlash, FileText, FileX, KeyRound, Landmark, Link2, LogIn, LogOut, MessageSquare, MessageSquareX, Power, PowerOff,
-  Send, TriangleAlert, UserCog, UserPlus, type LucideIcon,
+  BookCheck, CircleCheck, CircleSlash, FileText, FileX, KeyRound, Landmark, Link2, Lock, LockOpen, LogIn, LogOut, MessageSquare, MessageSquareX, Power,
+  PowerOff, Send, TriangleAlert, Tv, Unlink, UserCog, UserPlus, type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { dateTime } from "@/lib/format";
@@ -22,6 +22,11 @@ const KINDS: Record<string, { Icon: LucideIcon; tone?: "good" | "gold" | "crit" 
   "ixc.import": { Icon: UserPlus },
   "customer.activated": { Icon: Power, tone: "good" },
   "customer.deactivated": { Icon: PowerOff, tone: "crit" },
+  "box.approved": { Icon: Tv, tone: "good" },
+  "box.rejected": { Icon: CircleSlash },
+  "box.blocked": { Icon: Lock, tone: "crit" },
+  "box.unblocked": { Icon: LockOpen, tone: "good" },
+  "box.removed": { Icon: Unlink },
   "user.created": { Icon: UserPlus },
   "user.updated": { Icon: UserCog },
   login: { Icon: LogIn },

@@ -16,7 +16,27 @@ O desenho aprovado está na branch `design/mockup-layout` (pasta `design/mockup`
   - o PDF fica guardado no volume `faturas`, abre dentro do backoffice e pode ser partilhado com um link assinado que expira em 30 dias.
 - **Cobrança** (IXC + AppyPay + WeSender), ver abaixo: referência Multicaixa por cada título do IXC, SMS ao cliente, confirmação do pagamento e baixa no IXC.
 - **Utilizadores** e **Definições** (estado das integrações, testar ligações, tarefas automáticas, executar agora).
-- Boxes e Canais & grelhas têm o lugar reservado: chegam com a ligação à API das TvBox.
+- **Boxes** (app ZON TV), ver abaixo: pedidos de ativação, aprovar com o código da TV, bloquear, desassociar; estado de cada box na ficha do cliente.
+- Canais & grelhas tem o lugar reservado: por agora as boxes recebem a grelha base (185 canais).
+
+## Boxes ZON TV
+
+A app Android ZON TV (versão de gestão) liga-se a este backoffice. O endereço a pôr na box é o `APP_URL`, que **tem de ser HTTPS** (a app recusa HTTP).
+
+1. Na box, a app pede o servidor e o serial e envia um **pedido de ativação** com a chave pública que gerou (RSA 2048, guardada no AndroidKeyStore da box).
+2. O pedido aparece em **Boxes** e na ficha de qualquer cliente. O operador escolhe o cliente e escreve o **código da instalação** que a TV mostra (12 caracteres). Sem o código certo não aprova: assim um serial copiado não serve para outra box.
+3. Com a app aberta, a box sincroniza a cada minuto: pede um desafio (60 s, uso único) e assina-o com a chave. Recebe o estado, a grelha e a **conta do cliente**, que a app mostra em Definições: nome, plano, referência Multicaixa por pagar (entidade, referência, valor, data) ou o próximo pagamento.
+
+Estado da box:
+
+| Situação | Na box |
+|---|---|
+| Box bloqueada aqui, ou cliente desativado no backoffice | Bloqueada (sem canais) |
+| Cliente inativo no IXC | Serviço inativo |
+| Cliente em atraso | **Continua a ver TV**, com a referência nas Definições |
+| Box sem cliente (desassociada) | À espera de aprovação |
+
+Rotas da box (sem sessão, limitadas por IP e por serial, corpo até 16 KB): `POST /api/device/enroll`, `/api/device/challenge`, `/api/device/sync`. A migração publica a grelha base na primeira vez que arranca. Uma reinstalação na mesma box gera chave nova e volta a pedir aprovação; a chave antiga deixa de servir quando a nova é aprovada.
 
 ## Ciclo de cobrança
 
@@ -136,6 +156,7 @@ web/                    Aplicação Next.js
   src/lib/appypay/      Cliente da AppyPay (referências e cobranças)
   src/lib/sms/          WeSender e registo das SMS
   src/lib/cycle/        Regras do ciclo, referências, confirmação e baixas
+  src/lib/boxes/        Protocolo das boxes, conta na TV, grelha base e consultas
   src/lib/db/schema.ts  Tabelas (Drizzle ORM); migrações em web/drizzle
   src/jobs/             worker, migrate e seed
 dev/officegest-mock/    OfficeGest simulado para desenvolvimento
@@ -144,5 +165,5 @@ dev/integrations-mock/  IXC, AppyPay e WeSender simulados para desenvolvimento
 
 ## Próximas fases
 
-- **API das TvBox**: boxes, aprovação de chaves, grelhas e packs.
+- **Canais & grelhas**: editor de grelhas por plano, publicação por versões e packs.
 - Link da fatura na SMS de pagamento recebido.

@@ -1,6 +1,9 @@
 import { CircleCheck, CircleDashed, CircleX, Database, Lock, Play, Plug, Shield, Timer, TriangleAlert } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { canEdit, requireUser } from "@/lib/auth/session";
+import { currentGrid } from "@/lib/boxes/grid";
+import { boxStats } from "@/lib/boxes/queries";
 import { appypayConfig, cycleMode, env, ixcConfig, officegestConfig, smsConfig } from "@/lib/env";
 import { ago, date, dateTime, int, phoneFmt } from "@/lib/format";
 import { JOBS } from "@/lib/jobs";
@@ -11,10 +14,6 @@ import { Pill } from "@/components/status";
 import { runJobNow, testAppypay, testIxc, testOfficegest, testWesender } from "./actions";
 
 export const metadata: Metadata = { title: "Definições" };
-
-const NEXT = [
-  { code: "TV", name: "TvBox API", desc: "Boxes, grelhas e canais", meta: "Aprovar chaves, bloquear boxes, publicar grelhas" },
-];
 
 const OK = { label: "Ligado", tone: "good", Icon: CircleCheck } as const;
 const WARN = { label: "Atenção", tone: "warning", Icon: TriangleAlert } as const;
@@ -30,7 +29,14 @@ export default async function DefinicoesPage() {
   const ap = appypayConfig();
   const sms = smsConfig();
   const mode = cycleMode();
-  const [jobs, link] = await Promise.all([jobStatus(), og ? officegestLinkStats(og.consumerNif) : Promise.resolve(null)]);
+  const [jobs, link, boxes, grid] = await Promise.all([
+    jobStatus(),
+    og ? officegestLinkStats(og.consumerNif) : Promise.resolve(null),
+    boxStats(),
+    currentGrid(),
+  ]);
+  const appUrl = new URL(env().APP_URL);
+  const https = appUrl.protocol === "https:";
   const sync = jobs.last.get(JOBS.sync.name);
   const ixSync = jobs.last.get(JOBS.ixcSync.name);
   const apCheck = jobs.last.get(JOBS.confirm.name);
@@ -150,16 +156,24 @@ export default async function DefinicoesPage() {
                   <div><Pill s={OK} /></div>
                   <small className="text-2" style={{ fontSize: 12 }}>Base de dados própria, separada de qualquer outro sistema. Os PDF das faturas ficam num volume do Docker.</small>
                 </div>
-                {NEXT.map((i) => (
-                  <div className="int-card" key={i.name}>
-                    <div className="int-card-head">
-                      <span className="int-logo">{i.code}</span>
-                      <div style={{ flex: 1, minWidth: 0 }}><strong>{i.name}</strong><small className="muted" style={{ display: "block", fontSize: 12 }}>{i.desc}</small></div>
-                    </div>
-                    <div><Pill s={OFF} /></div>
-                    <small className="text-2" style={{ fontSize: 12 }}>{i.meta}</small>
+                <div className="int-card">
+                  <div className="int-card-head">
+                    <span className="int-logo">TV</span>
+                    <div style={{ flex: 1, minWidth: 0 }}><strong>Boxes ZON TV</strong><small className="muted" style={{ display: "block", fontSize: 12 }}>Ativação das boxes, grelha e conta do cliente na TV</small></div>
                   </div>
-                ))}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <Pill s={!https ? WARN : boxes.total ? OK : OFF} label={!https ? "Precisa de HTTPS" : boxes.total ? undefined : "À espera de boxes"} />
+                    <Link className="btn xs" href="/boxes">Ver boxes</Link>
+                  </div>
+                  <div className="kv-list">
+                    <div className="kv-row"><span>Servidor a pôr na box</span><strong className="mono">{appUrl.origin}</strong></div>
+                    <div className="kv-row"><span>Boxes</span><strong>{int(boxes.online)} ligadas · {int(boxes.total)} aprovadas</strong></div>
+                    <div className="kv-row"><span>Por aprovar</span><strong>{boxes.pending ? <Link href="/boxes">{int(boxes.pending)} pedidos</Link> : "nenhum"}</strong></div>
+                    <div className="kv-row"><span>Grelha</span><strong>{grid.name} v{grid.version} · {int(grid.channels.length)} canais</strong></div>
+                    <div className="kv-row"><span>Na TV (Definições)</span><strong>nome, referência por pagar, próximo pagamento</strong></div>
+                  </div>
+                  {!https ? <small className="sms-fail" style={{ fontSize: 12 }}>A app só aceita servidores HTTPS: o APP_URL tem de ser o endereço público com certificado.</small> : null}
+                </div>
               </div>
             </div>
           </article>
@@ -201,6 +215,7 @@ export default async function DefinicoesPage() {
                 <div className="kv-row"><span>Tentativas de entrada</span><strong>8 falhadas bloqueiam 15 min</strong></div>
                 <div className="kv-row"><span>Links públicos de faturas</span><strong>Assinados, expiram em 30 dias</strong></div>
                 <div className="kv-row"><span>Webhook da AppyPay</span><strong>Segredo no URL; o pagamento é confirmado de novo na AppyPay</strong></div>
+                <div className="kv-row"><span>Boxes</span><strong>Chave RSA própria de cada box; aprovação com o código da TV; cada sincronização assinada sobre um desafio de 60 s</strong></div>
                 <div className="kv-row"><span>Perfis</span><strong>Administrador · Operador · Consulta</strong></div>
               </div>
             </div>
