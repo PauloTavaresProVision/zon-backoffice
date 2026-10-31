@@ -19,7 +19,7 @@ export const NAV: { group: string; items: Item[] }[] = [
   ] },
   { group: "Serviço", items: [
     { href: "/planos", label: "Planos", Icon: Layers },
-    { href: "/canais", label: "Canais & grelhas", Icon: ListVideo, soon: true },
+    { href: "/canais", label: "Canais & grelhas", Icon: ListVideo },
   ] },
   { group: "Financeiro", items: [
     { href: "/pagamentos", label: "Pagamentos", Icon: Receipt },

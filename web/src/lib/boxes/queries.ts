@@ -51,8 +51,10 @@ export async function listBoxes(o: { filter: BoxFilter; q: string; page: number;
     db().select({
       box: b,
       customer: { id: c.id, name: c.name, ixcId: c.ixcId, status: c.status, disabledAt: c.disabledAt },
+      // Para saber que grelha a box devia ter
+      planGridId: schema.plans.gridId,
     })
-      .from(b).leftJoin(c, eq(c.id, b.customerId)).where(where)
+      .from(b).leftJoin(c, eq(c.id, b.customerId)).leftJoin(schema.plans, eq(schema.plans.id, c.planId)).where(where)
       .orderBy(sql`${b.lastSeenAt} desc nulls last`, b.serial)
       .limit(o.pageSize).offset((o.page - 1) * o.pageSize),
     db().select({ n: count() }).from(b).leftJoin(c, eq(c.id, b.customerId)).where(where),

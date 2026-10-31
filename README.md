@@ -17,7 +17,7 @@ O desenho aprovado está na branch `design/mockup-layout` (pasta `design/mockup`
 - **Cobrança** (IXC + AppyPay + WeSender), ver abaixo: referência Multicaixa por cada título do IXC, SMS ao cliente, confirmação do pagamento e baixa no IXC.
 - **Utilizadores** e **Definições** (estado das integrações, testar ligações, tarefas automáticas, executar agora).
 - **Boxes** (app ZON TV), ver abaixo: pedidos de ativação, aprovar com o código da TV, bloquear, desassociar; estado de cada box na ficha do cliente.
-- Canais & grelhas tem o lugar reservado: por agora as boxes recebem a grelha base (185 canais).
+- **Canais & grelhas**, ver abaixo: catálogo de canais, grelhas por plano com rascunho e versões publicadas, importar o XML do headend.
 
 ## Boxes ZON TV
 
@@ -36,7 +36,18 @@ Estado da box:
 | Cliente em atraso | **Continua a ver TV**, com a referência nas Definições |
 | Box sem cliente (desassociada) | À espera de aprovação |
 
-Rotas da box (sem sessão, limitadas por IP e por serial, corpo até 16 KB): `POST /api/device/enroll`, `/api/device/challenge`, `/api/device/sync`. A migração publica a grelha base na primeira vez que arranca. Uma reinstalação na mesma box gera chave nova e volta a pedir aprovação; a chave antiga deixa de servir quando a nova é aprovada.
+Rotas da box (sem sessão, limitadas por IP e por serial, corpo até 16 KB): `POST /api/device/enroll`, `/api/device/challenge`, `/api/device/sync`. Uma reinstalação na mesma box gera chave nova e volta a pedir aprovação; a chave antiga deixa de servir quando a nova é aprovada.
+
+## Canais & grelhas
+
+- **Catálogo**: cada canal é um serviço do headend (endereço multicast e porta, únicos), com nome e uma das categorias que a app conhece. Os logótipos são os mesmos que a app traz, escolhidos pelo nome do canal. Um canal só se desativa depois de sair de todas as grelhas.
+- **Importar XML**: o ficheiro DVB ServiceDiscovery do headend (o mesmo formato que a box aceita). Mostra primeiro o que muda: canais novos, nomes novos, os que faltam no XML. Não apaga nem desativa nada. Pode pôr a ordem do XML no rascunho de uma grelha.
+- **Grelhas**: o número do canal na TV é a posição na grelha (1, 2, 3…). Arrastar, mudar o número, subir/descer, adicionar da biblioteca: cada alteração fica no **rascunho**, gravado sozinho, e as boxes não veem nada até alguém **publicar**. Antes de publicar o editor diz o que muda (canais novos, retirados, movidos, editados no catálogo, quantos mudam de número).
+- **Versões**: cada publicação é uma fotografia (v1, v2…); editar o catálogo depois não mexe no que está publicado. Uma versão antiga pode voltar ao rascunho e ser publicada de novo.
+- **Que grelha recebe cada box**: a do plano do cliente; se o plano não tiver grelha (ou a dele ainda não foi publicada), a **predefinida**. A box recebe a mudança na sincronização seguinte (até um minuto, mais até 30 s de cache).
+- Perfis: o Operador mexe no catálogo e nos rascunhos; **publicar, escolher os planos de uma grelha, mudar a predefinida e apagar** é com o Administrador.
+
+Na primeira migração o catálogo é criado com os 185 canais da grelha base e a versão que as boxes já tinham passa a ser a v1 da "Grelha base" (predefinida).
 
 ## Ciclo de cobrança
 
@@ -156,7 +167,8 @@ web/                    Aplicação Next.js
   src/lib/appypay/      Cliente da AppyPay (referências e cobranças)
   src/lib/sms/          WeSender e registo das SMS
   src/lib/cycle/        Regras do ciclo, referências, confirmação e baixas
-  src/lib/boxes/        Protocolo das boxes, conta na TV, grelha base e consultas
+  src/lib/boxes/        Protocolo das boxes, conta na TV, que grelha recebe cada box e consultas
+  src/lib/channels/     Catálogo, regras das grelhas (as mesmas da box), XML do headend e logótipos
   src/lib/db/schema.ts  Tabelas (Drizzle ORM); migrações em web/drizzle
   src/jobs/             worker, migrate e seed
 dev/officegest-mock/    OfficeGest simulado para desenvolvimento
@@ -165,5 +177,5 @@ dev/integrations-mock/  IXC, AppyPay e WeSender simulados para desenvolvimento
 
 ## Próximas fases
 
-- **Canais & grelhas**: editor de grelhas por plano, publicação por versões e packs.
+- **Packs** de canais extra por cliente (precisa de os cobrar no ciclo).
 - Link da fatura na SMS de pagamento recebido.

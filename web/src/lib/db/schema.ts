@@ -48,6 +48,8 @@ export const plans = pgTable("plans", {
   active: boolean("active").notNull().default(true),
   // Plano (modelo de contrato) correspondente no IXC
   ixcPlanId: text("ixc_plan_id").unique(),
+  // Grelha de canais que as boxes dos clientes deste plano recebem; sem grelha, recebem a predefinida
+  gridId: integer("grid_id").references(() => grids.id, { onDelete: "set null" }),
   createdAt: createdAt(),
 });
 
@@ -254,13 +256,53 @@ export const boxChallenges = pgTable("box_challenges", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 }, (t) => [index("box_challenges_expires_idx").on(t.expiresAt)]);
 
-// Grelhas publicadas para as boxes. Por agora há uma só, a base; as grelhas por plano vêm com o editor.
+/* ---------- Canais e grelhas ---------- */
+
+// Catálogo de canais do headend. A box sintoniza pelo endereço multicast e porta; o número vem da grelha.
+export const channels = pgTable("channels", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  ip: text("ip").notNull(),
+  port: integer("port").notNull(),
+  category: text("category").notNull(),
+  // Inativo: deixa de aparecer na biblioteca do editor. Só se desativa fora de todas as grelhas.
+  active: boolean("active").notNull().default(true),
+  createdAt: createdAt(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("channels_address_key").on(t.ip, t.port)]);
+
+// Grelha de canais (lineup). O rascunho só existe enquanto houver alterações por publicar.
+export const grids = pgTable("grids", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  // A grelha das boxes cujo plano não tem grelha escolhida
+  isDefault: boolean("is_default").notNull().default(false),
+  // Ids do catálogo pela ordem da TV: o canal na posição 1 é o canal 1 na box
+  draft: jsonb("draft").$type<number[]>(),
+  // Sobe a cada gravação, para duas pessoas não gravarem por cima uma da outra
+  rev: integer("rev").notNull().default(0),
+  draftUpdatedAt: timestamp("draft_updated_at", { withTimezone: true }),
+  draftUpdatedBy: integer("draft_updated_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+}, (t) => [
+  uniqueIndex("grids_name_key").on(sql`lower(${t.name})`),
+  uniqueIndex("grids_default_key").on(t.isDefault).where(sql`${t.isDefault}`),
+]);
+
+// Versões publicadas. São fotografias: editar o catálogo depois não muda o que já foi publicado.
 export const gridReleases = pgTable("grid_releases", {
+  // Número global que a box guarda e devolve na sincronização
   version: serial("version").primaryKey(),
+  gridId: integer("grid_id").references(() => grids.id, { onDelete: "cascade" }),
+  // Versão dentro da grelha (v1, v2…), a que se mostra no backoffice
+  number: integer("number").notNull().default(1),
   name: text("name").notNull(),
   channels: jsonb("channels").$type<GridChannel[]>().notNull(),
+  // Ids do catálogo, alinhados com channels, para comparar com o rascunho
+  channelIds: jsonb("channel_ids").$type<number[]>(),
+  publishedBy: integer("published_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: createdAt(),
-});
+}, (t) => [uniqueIndex("grid_releases_number_key").on(t.gridId, t.number)]);
 
 export type GridChannel = { number: number; name: string; ip: string; port: number; category: string };
 
@@ -320,3 +362,6 @@ export type Receivable = typeof receivables.$inferSelect;
 export type SmsMessage = typeof smsMessages.$inferSelect;
 export type Box = typeof boxes.$inferSelect;
 export type BoxEnrollment = typeof boxEnrollments.$inferSelect;
+export type Channel = typeof channels.$inferSelect;
+export type GridRow = typeof grids.$inferSelect;
+export type GridRelease = typeof gridReleases.$inferSelect;

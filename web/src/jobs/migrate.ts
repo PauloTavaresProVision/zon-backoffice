@@ -3,7 +3,7 @@ import path from "node:path";
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { MIN_PASSWORD, hashPassword } from "@/lib/auth/password";
-import { ensureBaseGrid } from "@/lib/boxes/grid";
+import { ensureCatalog } from "@/lib/boxes/grid";
 import { db, pool, schema } from "@/lib/db";
 
 const log = (msg: string) => console.log(`[migrate] ${msg}`);
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
   const folder = process.env.MIGRATIONS_DIR ?? path.resolve(process.cwd(), "drizzle");
   await migrate(db(), { migrationsFolder: folder });
   log("migrações aplicadas");
-  if (await ensureBaseGrid()) log("grelha base publicada para as boxes");
+  for (const msg of await ensureCatalog()) log(msg);
   await bootstrapAdmin();
 }
 
