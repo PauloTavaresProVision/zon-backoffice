@@ -126,6 +126,16 @@ Junta também o **IXC, AppyPay e WeSender simulados** (`dev/integrations-mock`, 
 
 Sem Docker, dentro de `web/`: `npm install`, `npm run db:migrate`, `npm run dev` (precisa de um Postgres e das variáveis do `.env`).
 
+### Dados reais só de leitura, ao lado da demonstração
+
+Uma segunda instância com projeto, base de dados e volumes próprios, para ver os clientes verdadeiros sem mexer na demonstração:
+
+```bash
+docker compose -p zon-real --env-file .env.real up -d
+```
+
+O `.env.real` (fora do Git) tem `APP_ENV_FILE=.env.real`, portas próprias (`WEB_PORT=4621`, `DB_PORT=5451`), o IXC e o OfficeGest verdadeiros, `CYCLE_MODE=simulacao`, `OFFICEGEST_ISSUE_FROM` vazio e a AppyPay e a WeSender por configurar. Assim só lê: não cria referências, não envia SMS, não dá baixas e não emite faturas. Para parar: `docker compose -p zon-real --env-file .env.real down`.
+
 ## Contentores
 
 | Serviço | O quê |
