@@ -1,0 +1,13 @@
+{
+  "name": "officegest-mock",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OfficeGest simulado para desenvolver e testar o Zon Backoffice. Não usar em produção.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "pdf-lib": "1.17.1"
+  }
+}

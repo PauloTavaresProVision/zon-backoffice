@@ -1,0 +1,75 @@
+# Zon Backoffice no Docker. Tudo isolado: base de dados, volumes e rede próprios.
+#
+#   cp .env.example .env        (e preencher)
+#   docker compose up -d --build                 produção / servidor
+#   docker compose --profile dev up -d --build   com o OfficeGest simulado e dados de demonstração
+name: zon-backoffice
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: Africa/Luanda
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${DB_PORT:-5450}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build: ./web
+    image: zon-backoffice/web:local
+    restart: unless-stopped
+    env_file: .env
+    environment: *app-env
+    volumes:
+      - faturas:/data/faturas
+    ports:
+      - "127.0.0.1:${WEB_PORT:-4620}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    image: zon-backoffice/web:local
+    restart: unless-stopped
+    command: ["node", "dist/worker.cjs"]
+    env_file: .env
+    environment: *app-env
+    volumes:
+      - faturas:/data/faturas
+    healthcheck:
+      disable: true
+    depends_on:
+      web:
+        condition: service_healthy
+
+  # Só com --profile dev: imita a API do OfficeGest para testar sem tocar na conta verdadeira
+  officegest-mock:
+    profiles: ["dev"]
+    build: ./dev/officegest-mock
+    restart: unless-stopped
+    environment:
+      MOCK_USER: ${OFFICEGEST_USER:-demo}
+      MOCK_KEY: ${OFFICEGEST_KEY:-demo-key}
+      MOCK_PUBLIC_URL: http://officegest-mock:4630
+    volumes:
+      - officegest-mock:/data
+    ports:
+      - "127.0.0.1:4630:4630"
+
+volumes:
+  pgdata:
+  faturas:
+  officegest-mock:
