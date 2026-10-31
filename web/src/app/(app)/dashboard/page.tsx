@@ -2,6 +2,7 @@ import { ArrowRight, CircleAlert, Clock, Receipt, TrendingDown, TrendingUp, User
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/session";
+import { boxStats } from "@/lib/boxes/queries";
 import { appypayConfig, cycleMode, ixcConfig, officegestConfig, smsConfig } from "@/lib/env";
 import { addDays, ago, date, daysFrom, dec, greeting, initials, int, isoDay, kz, longToday, millions, mkz, MONTHS, MONTHS_LONG, monthLabel, pct, rel, shiftMonth } from "@/lib/format";
 import { JOBS } from "@/lib/jobs";
@@ -25,7 +26,7 @@ export default async function DashboardPage() {
   const prev = shiftMonth(month, -1);
   const dayOfMonth = +today.slice(8, 10);
 
-  const [counts, stats, cash, cashPrev, series, expiring, plans, feed, invoicing, backlog, links, jobs] = await Promise.all([
+  const [counts, stats, cash, cashPrev, series, expiring, plans, feed, invoicing, backlog, links, jobs, boxes] = await Promise.all([
     clientCounts(today),
     refStats(month),
     cashReceived(`${month}-01`, addDays(today, 1)),
@@ -39,6 +40,7 @@ export default async function DashboardPage() {
     invoiceBacklog(og?.issueFrom ?? null),
     og ? officegestLinkStats(og.consumerNif) : Promise.resolve(null),
     jobStatus(),
+    boxStats(),
   ]);
 
   const firstData = series.findIndex((s) => s.issued > 0);
@@ -58,7 +60,14 @@ export default async function DashboardPage() {
     integration("IXC Zon", "Clientes e contratos", !!ixcConfig(), JOBS.ixcSync.name, "sincronizado"),
     integration("AppyPay", "Referências Multicaixa", !!appypayConfig(), JOBS.confirm.name, "verificado"),
     integration("WeSender", "SMS aos clientes", !!smsConfig(), JOBS.cycle.name, "ciclo"),
-    { name: "TvBox API", state: "off", desc: "Boxes, grelhas e canais", meta: "Próxima fase" },
+    {
+      name: "Boxes ZON TV",
+      state: boxes.pending ? "warn" : boxes.total ? "ok" : "off",
+      desc: "Ativação, grelha e conta na TV",
+      meta: boxes.total || boxes.pending
+        ? `${int(boxes.online)} de ${int(boxes.total)} ligadas${boxes.pending ? ` · ${int(boxes.pending)} por aprovar` : ""}`
+        : "À espera da primeira box",
+    },
   ];
   function integration(name: string, desc: string, configured: boolean, job: string, verb: string) {
     if (!configured) return { name, state: "off", desc, meta: "Por configurar no servidor" };

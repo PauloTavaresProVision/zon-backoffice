@@ -1,6 +1,6 @@
 import {
-  ArrowLeft, Calendar, CheckCheck, CircleCheck, CirclePause, CircleX, FileText, FlaskConical, Hash, Landmark, Mail, MapPin, MessageSquare, Phone,
-  RefreshCw, Send, Tv, WifiOff, type LucideIcon,
+  ArrowLeft, Calendar, CheckCheck, CircleCheck, CirclePause, CircleX, FileText, FlaskConical, Hash, Landmark, Lock, LockOpen, Mail, MapPin,
+  MessageSquare, Phone, RefreshCw, Send, Tv, Unlink, WifiOff, type LucideIcon,
 } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -12,12 +12,18 @@ import { ago, date, dateTime, initials, int, isoDay, kz, monthLabel, MONTHS, pho
 import { BLOCKED_INTERNET, CONTRACT_STATUS, INTERNET_STATUS } from "@/lib/ixc";
 import { typeLabel } from "@/lib/officegest";
 import { activityFeed, clientContracts, clientInvoices, clientPayments, getClient, openReference, recentSms } from "@/lib/queries";
+import { billingFor } from "@/lib/boxes/device";
+import { currentGrid } from "@/lib/boxes/grid";
+import { customerBoxes, pendingEnrollments } from "@/lib/boxes/queries";
+import { boxView } from "@/lib/boxes/view";
 import { ActionButton } from "@/components/action-button";
+import { ApproveBox } from "@/components/approve-box";
 import { ActiveToggle, CopyButton } from "@/components/controls";
 import { Feed } from "@/components/feed";
 import { PdfButton } from "@/components/pdf-viewer";
-import { CLIENT_STATE, PAY_STATE, Pill, SMS_KIND, SMS_STATE, type StateDef } from "@/components/status";
+import { BOX_STATE, CLIENT_STATE, PAY_STATE, Pill, SMS_KIND, SMS_STATE, type StateDef } from "@/components/status";
 import { Empty } from "@/components/ui";
+import { removeBox, setBoxBlocked } from "../../boxes/actions";
 import { generateReferenceNow, refreshClientInvoices, resendReferenceSms, simulatePayment } from "../actions";
 
 type Props = { params: Promise<{ id: string }> };
@@ -50,14 +56,19 @@ export default async function ClientePage({ params }: Props) {
   const today = isoDay();
   const mode = cycleMode();
   const devMocks = !!env().DEV_MOCKS_URL;
-  const [pays, invs, open, feed, ixcData, sms] = await Promise.all([
+  const [pays, invs, open, feed, ixcData, sms, boxes, waiting, grid] = await Promise.all([
     clientPayments(c.id),
     clientInvoices(c.id),
     openReference(c.id),
     activityFeed({ customerId: c.id, limit: 12 }),
     clientContracts(c.id),
     recentSms({ customerId: c.id, limit: 6 }),
+    customerBoxes(c.id),
+    pendingEnrollments(4),
+    currentGrid(),
   ]);
+  // O que as boxes do cliente mostram nas Definições da app
+  const tv = boxes.length ? await billingFor(c.id) : null;
   const st = CLIENT_STATE[clientState(c, today)];
   const editor = canEdit(user);
   // O próximo título por cobrar (sem referência viva e ainda não pago)
@@ -269,16 +280,61 @@ export default async function ClientePage({ params }: Props) {
 
         <div className="grid">
           <article className="card">
-            <div className="card-head"><div><h2>Boxes e grelha</h2><p className="sub">Ligação à API das TvBox na próxima fase</p></div></div>
-            <div className="card-body">
-              <div className="box-visual">
-                <span className="box-device off"><Tv className="ico" aria-hidden /></span>
-                <div>
-                  <strong>{plan?.channels ? `${plan.channels} canais no plano` : "Plano só de Internet"}</strong>
-                  <small className="muted" style={{ display: "block", fontSize: 12.5 }}>Aqui vão aparecer as boxes do cliente, o estado e a grelha de canais.</small>
-                </div>
-              </div>
+            <div className="card-head">
+              <div><h2>Boxes</h2><p className="sub">{boxes.length ? `${boxes.length} associada${boxes.length === 1 ? "" : "s"} · app ZON TV` : "Nenhuma box associada"}</p></div>
             </div>
+            {boxes.map(({ box: x, approvedBy }) => {
+              const v = boxView(x, c);
+              const device = v === "online" ? "" : v === "blocked" || v === "disabled" ? " blocked" : " off";
+              return (
+                <div className="box-card" key={x.id}>
+                  <div className="box-visual">
+                    <span className={`box-device${device}`}><Tv className="ico" aria-hidden /></span>
+                    <div className="grow" style={{ minWidth: 0 }}>
+                      <strong className="mono" style={{ fontSize: 14 }}>{x.serial}</strong>
+                      <small className="muted" style={{ display: "block", fontSize: 12.5 }}>{x.model ?? "Modelo desconhecido"}</small>
+                    </div>
+                    <Pill s={BOX_STATE[v]} />
+                  </div>
+                  <div className="kv-list">
+                    <div className="kv-row"><span>Último contacto</span><strong>{x.lastSeenAt ? `${dateTime(x.lastSeenAt)} · ${ago(x.lastSeenAt)}` : "ainda não sincronizou"}</strong></div>
+                    <div className="kv-row"><span>Versão da app</span><strong>{x.appVersion ? `${x.appVersion}${x.osVersion ? ` · Android ${x.osVersion}` : ""}` : "—"}</strong></div>
+                    <div className="kv-row"><span>Grelha</span><strong>{x.gridVersion ? `v${x.gridVersion}${x.gridVersion === grid.version ? "" : ` · a passar para v${grid.version}`}` : "—"}</strong></div>
+                    <div className="kv-row"><span>Na TV (Definições)</span><strong>{tv?.pending ? `Ref. ${refFmt(tv.pending.reference)} · ${kz(tv.pending.amountKz)}` : tv?.nextPayment ? `Próximo pagamento ${date(tv.nextPayment.date)}` : "—"}</strong></div>
+                    <div className="kv-row"><span>Aprovada</span><strong>{date(x.approvedAt)}{approvedBy ? ` · ${approvedBy}` : ""}</strong></div>
+                  </div>
+                  {editor ? (
+                    <div className="btn-row">
+                      <ActionButton action={setBoxBlocked.bind(null, x.id, !x.blockedAt)} className="btn sm"
+                        confirm={x.blockedAt ? undefined : `Bloquear a box ${x.serial}? Deixa de mostrar canais dentro de 1 minuto.`}>
+                        {x.blockedAt ? <><LockOpen className="ico sm" aria-hidden />Desbloquear</> : <><Lock className="ico sm" aria-hidden />Bloquear</>}
+                      </ActionButton>
+                      <ActionButton action={removeBox.bind(null, x.id)} className="btn sm ghost"
+                        confirm={`Desassociar a box ${x.serial} de ${c.name}? Para voltar a ver TV precisa de nova aprovação.`}>
+                        <Unlink className="ico sm" aria-hidden />Desassociar
+                      </ActionButton>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+            {c.disabledAt && boxes.length ? <p className="muted box-note">Cliente desativado: as boxes não mostram canais até ser ativado de novo.</p> : null}
+            {editor ? (
+              <div className="card-body box-associate">
+                <div>
+                  <strong>Associar box</strong>
+                  <small>Na box, abrir a ZON TV e indicar o servidor <span className="mono">https://{new URL(env().APP_URL).host}</span> e o serial. Depois aprovar aqui com o código que a TV mostra.</small>
+                </div>
+                {waiting.rows.length ? waiting.rows.map(({ enrollment: x }) => (
+                  <div className="associate-row" key={x.id}>
+                    <div><strong className="mono">{x.serial}</strong><small>{x.model ?? "Modelo desconhecido"} · {ago(x.lastSeenAt)}</small></div>
+                    <ApproveBox enrollmentId={x.id} serial={x.serial} customer={{ id: c.id, name: c.name, ixcId: c.ixcId }} canReject={false} />
+                  </div>
+                )) : <small className="muted">Sem pedidos de ativação neste momento.</small>}
+                {waiting.total > waiting.rows.length ? <Link className="link" href="/boxes">Ver os {int(waiting.total)} pedidos em Boxes</Link> : null}
+                {plan?.kind === "internet" ? <small className="muted">O plano principal deste cliente é só de Internet.</small> : null}
+              </div>
+            ) : !boxes.length ? <Empty Icon={Tv}>Sem boxes.</Empty> : null}
           </article>
 
           <article className="card">

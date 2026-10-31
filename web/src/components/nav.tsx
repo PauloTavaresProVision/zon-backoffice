@@ -15,7 +15,7 @@ export const NAV: { group: string; items: Item[] }[] = [
   { group: "Geral", items: [{ href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard }] },
   { group: "Clientes", items: [
     { href: "/clientes", label: "Clientes", Icon: Users, count: "clientes" },
-    { href: "/boxes", label: "Boxes", Icon: Tv, soon: true },
+    { href: "/boxes", label: "Boxes", Icon: Tv },
   ] },
   { group: "Serviço", items: [
     { href: "/planos", label: "Planos", Icon: Layers },

@@ -1,4 +1,5 @@
-import { CircleAlert, CircleCheck, CirclePause, CircleX, Clock, type LucideIcon } from "lucide-react";
+import { CircleAlert, CircleCheck, CirclePause, CircleX, Clock, Lock, PowerOff, Unlink, Wifi, WifiOff, type LucideIcon } from "lucide-react";
+import type { BoxView } from "@/lib/boxes/view";
 import type { ClientStateKey } from "@/lib/client-state";
 import type { Payment } from "@/lib/db/schema";
 
@@ -29,6 +30,16 @@ export const SMS_KIND: Record<string, string> = {
 export const SMS_STATE: Record<string, StateDef> = {
   sent: { label: "Enviada", tone: "good", Icon: CircleCheck },
   failed: { label: "Falhou", tone: "critical", Icon: CircleX },
+};
+
+export const BOX_STATE: Record<BoxView, StateDef> = {
+  online: { label: "Ligada", tone: "good", Icon: Wifi },
+  offline: { label: "Sem contacto", tone: "", Icon: WifiOff },
+  waiting: { label: "À espera da box", tone: "warning", Icon: Clock },
+  blocked: { label: "Bloqueada", tone: "critical", Icon: Lock },
+  disabled: { label: "Cliente desativado", tone: "critical", Icon: PowerOff },
+  inactive: { label: "Cliente inativo", tone: "", Icon: CirclePause },
+  orphan: { label: "Sem cliente", tone: "warning", Icon: Unlink },
 };
 
 export function Pill({ s, label }: { s: StateDef; label?: string }) {
