@@ -1,7 +1,11 @@
 // Tarefas partilhadas pelo worker e pelo botão "Executar agora" das Definições.
 import { and, eq, lt } from "drizzle-orm";
+import { checkPendingCharges } from "@/lib/cycle/confirm";
+import { runCycle } from "@/lib/cycle/run";
+import { settlePaidInIxc } from "@/lib/cycle/settle";
 import { db, schema } from "@/lib/db";
 import { isoDay } from "@/lib/format";
+import { syncIxc } from "@/lib/ixc/sync";
 import { JOBS } from "@/lib/jobs";
 import { issuePendingInvoices } from "@/lib/officegest/issue";
 import { syncAllInvoices } from "@/lib/officegest/sync";
@@ -33,6 +37,10 @@ export async function expireReferences(): Promise<string> {
 export type JobKey = keyof typeof JOBS;
 
 export const TASKS: Record<JobKey, () => Promise<string>> = {
+  ixcSync: syncIxc,
+  cycle: runCycle,
+  confirm: () => checkPendingCharges(),
+  settle: () => settlePaidInIxc(),
   issue: () => issueInvoiceBacklog(),
   sync: syncAllInvoices,
   expire: expireReferences,

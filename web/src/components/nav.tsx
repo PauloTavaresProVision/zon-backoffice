@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Layers, LayoutDashboard, ListVideo, LogOut, Menu, Receipt, Settings, SunMoon, Tv, UserCog, Users, type LucideIcon,
+  HandCoins, Layers, LayoutDashboard, ListVideo, LogOut, Menu, Receipt, Settings, SunMoon, Tv, UserCog, Users, type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -21,7 +21,10 @@ export const NAV: { group: string; items: Item[] }[] = [
     { href: "/planos", label: "Planos", Icon: Layers },
     { href: "/canais", label: "Canais & grelhas", Icon: ListVideo, soon: true },
   ] },
-  { group: "Financeiro", items: [{ href: "/pagamentos", label: "Pagamentos", Icon: Receipt }] },
+  { group: "Financeiro", items: [
+    { href: "/pagamentos", label: "Pagamentos", Icon: Receipt },
+    { href: "/cobranca", label: "Cobrança", Icon: HandCoins },
+  ] },
   { group: "Sistema", items: [
     { href: "/utilizadores", label: "Utilizadores", Icon: UserCog },
     { href: "/definicoes", label: "Definições", Icon: Settings },
@@ -59,6 +62,7 @@ const TABS: Item[] = [
   { href: "/planos", label: "Planos", Icon: Layers },
 ];
 const MORE: Item[] = [
+  { href: "/cobranca", label: "Cobrança", Icon: HandCoins },
   { href: "/boxes", label: "Boxes", Icon: Tv },
   { href: "/canais", label: "Canais & grelhas", Icon: ListVideo },
   { href: "/utilizadores", label: "Utilizadores", Icon: UserCog },

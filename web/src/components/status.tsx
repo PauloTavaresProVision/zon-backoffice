@@ -18,6 +18,19 @@ export const PAY_STATE: Record<Payment["status"], StateDef> = {
   expired: { label: "Expirada", tone: "critical", Icon: CircleX },
 };
 
+export const SMS_KIND: Record<string, string> = {
+  stage_7: "Referência (7 dias)",
+  stage_3: "Lembrete (3 dias)",
+  stage_1: "Último aviso",
+  paid: "Pagamento recebido",
+  manual: "Reenviada",
+};
+
+export const SMS_STATE: Record<string, StateDef> = {
+  sent: { label: "Enviada", tone: "good", Icon: CircleCheck },
+  failed: { label: "Falhou", tone: "critical", Icon: CircleX },
+};
+
 export function Pill({ s, label }: { s: StateDef; label?: string }) {
   const { Icon } = s;
   return <span className={`pill ${s.tone}`}><Icon className="ico" aria-hidden />{label ?? s.label}</span>;

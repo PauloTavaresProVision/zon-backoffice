@@ -1,13 +1,16 @@
-// Tarefas automáticas: emitir faturas, sincronizar com o OfficeGest e expirar referências.
+// Tarefas automáticas: ciclo de cobrança (IXC, AppyPay, SMS), faturas no OfficeGest e expiração de referências.
 import { desc, eq } from "drizzle-orm";
+import { appypay } from "@/lib/appypay";
 import { db, pool, schema } from "@/lib/db";
+import { cycleMode } from "@/lib/env";
+import { ixc } from "@/lib/ixc";
 import { JOBS, pruneJobRuns, runJob } from "@/lib/jobs";
 import { officegest } from "@/lib/officegest";
 import { syncAllInvoices } from "@/lib/officegest/sync";
-import { expireReferences, issueInvoiceBacklog } from "@/lib/tasks";
+import { TASKS, issueInvoiceBacklog } from "@/lib/tasks";
 
 const TICK_MS = 60_000;
-const EXPIRE_EVERY_MIN = 10;
+const EVERY_MIN = { cycle: 15, confirm: 10, expire: 10 } as const;
 
 let stopping = false;
 let wake: (() => void) | null = null;
@@ -20,39 +23,68 @@ async function minutesSinceLastRun(job: string): Promise<number> {
   return last ? (Date.now() - last.at.getTime()) / 60_000 : Infinity;
 }
 
-async function hasInvoiceBacklog(issueFrom: string): Promise<boolean> {
-  const { rows } = await pool().query(`
-    select 1 from payments p
-    where p.status = 'paid' and p.paid_at >= ($1::date)::timestamp at time zone 'Africa/Luanda'
-      and not exists (select 1 from invoices i where i.payment_id = p.id)
-      and (p.invoice_next_attempt_at is null or p.invoice_next_attempt_at <= now())
-      and (p.invoice_claimed_until is null or p.invoice_claimed_until < now())
-    limit 1`, [issueFrom]);
+async function hasBacklog(query: string, params: unknown[] = []): Promise<boolean> {
+  const { rows } = await pool().query(`${query} limit 1`, params);
   return rows.length > 0;
+}
+
+/** Corre uma tarefa e escreve no registo; `quiet` só regista falhas. */
+async function run(key: keyof typeof JOBS, fn: () => Promise<string>, quiet = false): Promise<void> {
+  const r = await runJob(JOBS[key].name, fn);
+  if (r.ran && (!quiet || !r.ok)) log(`${JOBS[key].label}: ${r.summary}`);
+}
+
+async function ixcSync(): Promise<void> {
+  const x = ixc();
+  if (!x || cycleMode() === "desligado" || (await minutesSinceLastRun(JOBS.ixcSync.name)) < x.cfg.syncMinutes) return;
+  await run("ixcSync", TASKS.ixcSync);
+}
+
+async function cycle(): Promise<void> {
+  if (cycleMode() === "desligado" || !ixc() || (await minutesSinceLastRun(JOBS.cycle.name)) < EVERY_MIN.cycle) return;
+  // Sem uma sincronização bem-sucedida não há títulos para trabalhar
+  if (!(await hasBacklog("select 1 from job_runs where job = $1 and ok", [JOBS.ixcSync.name]))) return;
+  await run("cycle", TASKS.cycle);
+}
+
+async function confirm(): Promise<void> {
+  if (!appypay() || (await minutesSinceLastRun(JOBS.confirm.name)) < EVERY_MIN.confirm) return;
+  if (!(await hasBacklog("select 1 from payments where status = 'pending' and appypay_id is not null"))) return;
+  await run("confirm", TASKS.confirm, true);
+}
+
+async function settle(): Promise<void> {
+  if (cycleMode() !== "ativo" || !ixc()) return;
+  const due = await hasBacklog(`select 1 from payments where status = 'paid' and ixc_receivable_id is not null and ixc_settled_at is null
+    and (ixc_settle_next_at is null or ixc_settle_next_at <= now()) and (ixc_settle_claimed_until is null or ixc_settle_claimed_until < now())`);
+  if (due) await run("settle", TASKS.settle);
 }
 
 async function issue(): Promise<void> {
   const og = officegest();
-  if (!og?.cfg.issueFrom || !(await hasInvoiceBacklog(og.cfg.issueFrom))) return;
-  const r = await runJob(JOBS.issue.name, () => issueInvoiceBacklog(() => stopping));
-  if (r.ran) log(`emitir faturas: ${r.summary}`);
+  if (!og?.cfg.issueFrom) return;
+  const due = await hasBacklog(`select 1 from payments p
+    where p.status = 'paid' and p.paid_at >= ($1::date)::timestamp at time zone 'Africa/Luanda'
+      and not exists (select 1 from invoices i where i.payment_id = p.id)
+      and (p.invoice_next_attempt_at is null or p.invoice_next_attempt_at <= now())
+      and (p.invoice_claimed_until is null or p.invoice_claimed_until < now())`, [og.cfg.issueFrom]);
+  if (due) await run("issue", () => issueInvoiceBacklog(() => stopping));
 }
 
 async function sync(): Promise<void> {
   const og = officegest();
   if (!og || (await minutesSinceLastRun(JOBS.sync.name)) < og.cfg.syncMinutes) return;
-  const r = await runJob(JOBS.sync.name, syncAllInvoices);
-  if (r.ran) log(`sincronizar faturas: ${r.summary}`);
+  await run("sync", syncAllInvoices);
 }
 
 async function expire(): Promise<void> {
-  if ((await minutesSinceLastRun(JOBS.expire.name)) < EXPIRE_EVERY_MIN) return;
-  const r = await runJob(JOBS.expire.name, expireReferences);
-  if (r.ran && !r.ok) log(`expirar referências: ${r.summary}`);
+  if ((await minutesSinceLastRun(JOBS.expire.name)) < EVERY_MIN.expire) return;
+  await run("expire", TASKS.expire, true);
 }
 
 async function tick(): Promise<void> {
-  for (const step of [issue, sync, expire]) {
+  // Primeiro o que mexe com dinheiro já recebido; depois a sincronização e o ciclo
+  for (const step of [confirm, settle, issue, ixcSync, cycle, sync, expire]) {
     if (stopping) return;
     try {
       await step();
@@ -64,9 +96,11 @@ async function tick(): Promise<void> {
 
 async function main(): Promise<void> {
   const og = officegest();
+  const x = ixc();
+  log(`ciclo de cobrança: ${cycleMode()}; IXC ${x ? new URL(x.cfg.url).host : "por configurar"}; AppyPay ${appypay() ? "configurada" : "por configurar"}`);
   log(og
     ? `OfficeGest em ${new URL(og.cfg.url).host}; emissão ${og.cfg.issueFrom ? `a partir de ${og.cfg.issueFrom}` : "desligada"}; sincronização a cada ${og.cfg.syncMinutes} min`
-    : "OfficeGest por configurar: só corre a expiração de referências");
+    : "OfficeGest por configurar");
   await pruneJobRuns(14);
   let lastPrune = Date.now();
   while (!stopping) {

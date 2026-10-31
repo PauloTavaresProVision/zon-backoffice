@@ -47,7 +47,7 @@ export default async function PlanosPage() {
           );
         })}
       </div>
-      <p className="muted mt" style={{ fontSize: 12.5 }}>Os planos e preços vêm do IXC. A edição e os packs de canais chegam com a ligação ao IXC e à API das TvBox.</p>
+      <p className="muted mt" style={{ fontSize: 12.5 }}>Os planos e preços vêm do IXC: os que a sincronização encontra e ainda não existem são criados aqui. Os packs de canais chegam com a API das TvBox.</p>
     </>
   );
 }

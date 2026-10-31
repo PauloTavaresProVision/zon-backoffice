@@ -1,22 +1,24 @@
 import {
-  ArrowLeft, Calendar, CheckCheck, CircleX, FileText, Hash, Landmark, Mail, MapPin, Phone, RefreshCw, Tv, type LucideIcon,
+  ArrowLeft, Calendar, CheckCheck, CircleCheck, CirclePause, CircleX, FileText, FlaskConical, Hash, Landmark, Mail, MapPin, MessageSquare, Phone,
+  RefreshCw, Send, Tv, WifiOff, type LucideIcon,
 } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { canEdit, currentUser, requireUser } from "@/lib/auth/session";
 import { clientState } from "@/lib/client-state";
-import { officegestConfig } from "@/lib/env";
+import { cycleMode, env, officegestConfig } from "@/lib/env";
 import { ago, date, dateTime, initials, int, isoDay, kz, monthLabel, MONTHS, phoneFmt, refFmt, rel } from "@/lib/format";
+import { BLOCKED_INTERNET, CONTRACT_STATUS, INTERNET_STATUS } from "@/lib/ixc";
 import { typeLabel } from "@/lib/officegest";
-import { activityFeed, clientInvoices, clientPayments, getClient, openReference } from "@/lib/queries";
+import { activityFeed, clientContracts, clientInvoices, clientPayments, getClient, openReference, recentSms } from "@/lib/queries";
 import { ActionButton } from "@/components/action-button";
 import { ActiveToggle, CopyButton } from "@/components/controls";
 import { Feed } from "@/components/feed";
 import { PdfButton } from "@/components/pdf-viewer";
-import { CLIENT_STATE, PAY_STATE, Pill } from "@/components/status";
+import { CLIENT_STATE, PAY_STATE, Pill, SMS_KIND, SMS_STATE, type StateDef } from "@/components/status";
 import { Empty } from "@/components/ui";
-import { refreshClientInvoices } from "../actions";
+import { generateReferenceNow, refreshClientInvoices, resendReferenceSms, simulatePayment } from "../actions";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -31,6 +33,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 const KIND_LABEL: Record<string, string> = { internet: "Internet", tv: "Televisão", internet_tv: "Internet + TV" };
 
+function contractState(status: string, internet: string | null): StateDef {
+  if (status !== "A") return { label: CONTRACT_STATUS[status] ?? status, tone: "", Icon: CirclePause };
+  if (internet && BLOCKED_INTERNET.includes(internet)) return { label: INTERNET_STATUS[internet] ?? "Bloqueado", tone: "serious", Icon: WifiOff };
+  return { label: "Ativo", tone: "good", Icon: CircleCheck };
+}
+
 export default async function ClientePage({ params }: Props) {
   const user = await requireUser();
   const id = parseId((await params).id);
@@ -40,14 +48,21 @@ export default async function ClientePage({ params }: Props) {
   const { customer: c, plan } = row;
   const og = officegestConfig();
   const today = isoDay();
-  const [pays, invs, open, feed] = await Promise.all([
+  const mode = cycleMode();
+  const devMocks = !!env().DEV_MOCKS_URL;
+  const [pays, invs, open, feed, ixcData, sms] = await Promise.all([
     clientPayments(c.id),
     clientInvoices(c.id),
     openReference(c.id),
     activityFeed({ customerId: c.id, limit: 12 }),
+    clientContracts(c.id),
+    recentSms({ customerId: c.id, limit: 6 }),
   ]);
   const st = CLIENT_STATE[clientState(c, today)];
   const editor = canEdit(user);
+  // O próximo título por cobrar (sem referência viva e ainda não pago)
+  const nextTitle = ixcData.open.find((r) => !r.paid && r.ixcId !== open?.ixcReceivableId);
+  const canGenerate = editor && mode === "ativo" && !open && !!nextTitle && !c.disabledAt;
   const synced = invs.reduce<Date | null>((m, { invoice }) => (!m || invoice.syncedAt > m ? invoice.syncedAt : m), null);
   const visibleInvs = invs.filter(({ invoice }) => !invoice.cancelled).length;
 
@@ -73,7 +88,7 @@ export default async function ClientePage({ params }: Props) {
           </div>
         </div>
         <div className="btn-row">
-          <ActiveToggle customerId={c.id} name={c.name} active={c.status !== "inactive"} disabled={!editor} />
+          <ActiveToggle customerId={c.id} name={c.name} active={c.status !== "inactive" && !c.disabledAt} disabled={!editor} />
         </div>
       </div>
 
@@ -92,6 +107,26 @@ export default async function ClientePage({ params }: Props) {
                   <span>{plan?.channels ? `${plan.channels} canais incluídos` : "Sem TV"}</span>
                 </div>
               </div>
+              {ixcData.contracts.length ? (
+                <div className="kv-list mt">
+                  {ixcData.contracts.map(({ contract: k, planName }) => {
+                    const titles = ixcData.open.filter((r) => r.contractId === k.id);
+                    return (
+                      <div className="kv-row contract-row" key={k.id}>
+                        <div>
+                          <strong>Contrato {k.ixcId} no IXC</strong>
+                          <small>
+                            {planName ?? "Plano por identificar"}{k.amountKz ? ` · ${kz(k.amountKz)}` : ""}
+                            {titles.length ? ` · ${titles.length} título${titles.length === 1 ? "" : "s"} em aberto (próximo a ${date(titles[0]!.dueDate)})` : " · sem títulos em aberto"}
+                          </small>
+                        </div>
+                        <Pill s={contractState(k.status, k.internetStatus)} />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {c.disabledAt ? <p className="muted mt" style={{ fontSize: 12.5 }}>Desativado no backoffice a {date(c.disabledAt)}: fica fora do ciclo de cobrança (sem referências nem SMS).</p> : null}
             </div>
           </article>
 
@@ -108,6 +143,16 @@ export default async function ClientePage({ params }: Props) {
                   </div>
                   <div className="btn-row">
                     <CopyButton text={`Entidade ${open.entity} · Referência ${refFmt(open.reference)} · ${kz(open.amountKz)}`} done="Referência copiada" />
+                    {editor && open.ixcReceivableId && mode !== "desligado" ? (
+                      <ActionButton action={resendReferenceSms.bind(null, open.id)} className="btn sm" confirm={`Enviar de novo a referência por SMS a ${c.name}?`}>
+                        <Send className="ico sm" aria-hidden />Reenviar SMS
+                      </ActionButton>
+                    ) : null}
+                    {editor && devMocks && open.appypayId ? (
+                      <ActionButton action={simulatePayment.bind(null, open.id)} className="btn sm" title="Só no ambiente de desenvolvimento" confirm="Simular o pagamento desta referência na AppyPay de testes?">
+                        <FlaskConical className="ico sm" aria-hidden />Simular pagamento
+                      </ActionButton>
+                    ) : null}
                   </div>
                   <div className="ref-status">
                     <span><Pill s={PAY_STATE.pending} /> &nbsp;Válida até {date(open.dueDate)} ({rel(open.dueDate, today)})</span>
@@ -122,11 +167,20 @@ export default async function ClientePage({ params }: Props) {
                   <div>
                     <strong>Sem referência em aberto</strong>
                     <p className="muted" style={{ fontSize: 13, marginTop: 2 }}>
-                      {st.label === "Em atraso" || c.status === "inactive"
-                        ? "A última referência expirou. A geração de referências chega com a ligação à AppyPay."
-                        : `A próxima referência é gerada antes de ${date(c.dueDate)}.`}
+                      {c.disabledAt || c.status === "inactive"
+                        ? "Cliente inativo: não recebe referências."
+                        : nextTitle
+                          ? `Próximo título no IXC: ${kz(nextTitle.amountKz)}, vence a ${date(nextTitle.dueDate)}. ${mode === "ativo" ? "A referência sai por SMS 7 dias antes." : "O ciclo de cobrança não está ativo."}`
+                          : ixcData.contracts.length ? "Sem títulos por pagar no IXC." : `A próxima referência é gerada antes de ${date(c.dueDate)}.`}
                     </p>
                   </div>
+                  {canGenerate ? (
+                    <div className="btn-row">
+                      <ActionButton action={generateReferenceNow.bind(null, nextTitle!.id)} className="btn sm primary" confirm={`Criar já a referência de ${kz(nextTitle!.amountKz)} e enviá-la por SMS a ${c.name}?`}>
+                        <Landmark className="ico sm" aria-hidden />Gerar referência
+                      </ActionButton>
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -237,6 +291,26 @@ export default async function ClientePage({ params }: Props) {
                 <div className="kv-row"><span>Cliente desde</span><strong>{date(c.since)}</strong></div>
               </div>
             </div>
+          </article>
+
+          <article className="card">
+            <div className="card-head"><div><h2>SMS</h2><p className="sub">Últimas mensagens enviadas a {phoneFmt(c.phone)}</p></div></div>
+            {sms.length ? (
+              <div className="card-body sms-list">
+                <div className="kv-list">
+                  {sms.map(({ sms: s, reference }) => (
+                    <div className="kv-row" key={s.id}>
+                      <div>
+                        <strong title={s.body}>{SMS_KIND[s.kind] ?? s.kind}</strong>
+                        <small>{dateTime(s.at)}{reference ? ` · ref. ${refFmt(reference)}` : ""}{s.test ? " · número de testes" : ""}</small>
+                        {s.error ? <small className="sms-fail">{s.error}</small> : null}
+                      </div>
+                      <Pill s={SMS_STATE[s.status] ?? SMS_STATE.failed!} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : <Empty Icon={MessageSquare}>Ainda sem SMS.</Empty>}
           </article>
 
           <article className="card">

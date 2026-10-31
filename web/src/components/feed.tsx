@@ -1,12 +1,18 @@
 import {
-  CircleCheck, FileText, FileX, KeyRound, Link2, LogIn, LogOut, MessageSquare, MessageSquareX, Power, PowerOff, Send, UserCog, UserPlus,
-  type LucideIcon,
+  BookCheck, CircleCheck, CircleSlash, FileText, FileX, KeyRound, Landmark, Link2, LogIn, LogOut, MessageSquare, MessageSquareX, Power, PowerOff,
+  Send, TriangleAlert, UserCog, UserPlus, type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { dateTime } from "@/lib/format";
 
 const KINDS: Record<string, { Icon: LucideIcon; tone?: "good" | "gold" | "crit" }> = {
   "payment.paid": { Icon: CircleCheck, tone: "good" },
+  "payment.reference": { Icon: Landmark, tone: "gold" },
+  "payment.cancelled": { Icon: CircleSlash },
+  "payment.mismatch": { Icon: TriangleAlert, tone: "crit" },
+  "payment.duplicate": { Icon: TriangleAlert, tone: "crit" },
+  "ixc.settled": { Icon: BookCheck, tone: "good" },
+  "ixc.already_settled": { Icon: TriangleAlert, tone: "crit" },
   "sms.sent": { Icon: MessageSquare, tone: "gold" },
   "sms.failed": { Icon: MessageSquareX, tone: "crit" },
   "invoice.issued": { Icon: FileText },

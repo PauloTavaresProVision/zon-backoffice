@@ -1,7 +1,9 @@
-// Dados de demonstração para desenvolvimento. Só corre com SEED_DEMO=true e com a base de dados vazia.
-// Todos os nomes, contactos e NIF são fictícios.
-import { sql } from "drizzle-orm";
+// Dados de demonstração para desenvolvimento. Só corre com SEED_DEMO=true: preenche a base de dados se estiver
+// vazia e o IXC/AppyPay simulados se estiverem vazios. Todos os nomes, contactos e NIF são fictícios.
+import { randomUUID } from "node:crypto";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, pool, schema } from "@/lib/db";
+import type { Payment } from "@/lib/db/schema";
 import { addDays, isoDay, kz, monthLabel, refFmt } from "@/lib/format";
 
 const log = (msg: string) => console.log(`[seed] ${msg}`);
@@ -21,12 +23,13 @@ const rand = rng(20261031);
 const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)]!;
 const between = (a: number, b: number) => a + Math.floor(rand() * (b - a + 1));
 
+// ixcPlanId: o modelo de contrato correspondente no IXC simulado
 const PLANS = [
-  { code: "f20", name: "ZON Fibra 20", kind: "internet", priceKz: 7500, speedMbps: 20, channels: null },
-  { code: "f50e", name: "ZON Fibra 50 + TV Essencial", kind: "internet_tv", priceKz: 9900, speedMbps: 50, channels: 64 },
-  { code: "f50t", name: "ZON Fibra 50 + TV Total", kind: "internet_tv", priceKz: 12500, speedMbps: 50, channels: 112 },
-  { code: "f100p", name: "ZON Fibra 100 + TV Premium", kind: "internet_tv", priceKz: 19900, speedMbps: 100, channels: 185 },
-  { code: "tvt", name: "ZON TV Total", kind: "tv", priceKz: 5500, speedMbps: null, channels: 112 },
+  { code: "f20", name: "ZON Fibra 20", kind: "internet", priceKz: 7500, speedMbps: 20, channels: null, ixcPlanId: "21" },
+  { code: "f50e", name: "ZON Fibra 50 + TV Essencial", kind: "internet_tv", priceKz: 9900, speedMbps: 50, channels: 64, ixcPlanId: "22" },
+  { code: "f50t", name: "ZON Fibra 50 + TV Total", kind: "internet_tv", priceKz: 12500, speedMbps: 50, channels: 112, ixcPlanId: "23" },
+  { code: "f100p", name: "ZON Fibra 100 + TV Premium", kind: "internet_tv", priceKz: 19900, speedMbps: 100, channels: 185, ixcPlanId: "24" },
+  { code: "tvt", name: "ZON TV Total", kind: "tv", priceKz: 5500, speedMbps: null, channels: 112, ixcPlanId: "25" },
 ] as const;
 const PLAN_WEIGHTS = ["f20", "f20", "f50e", "f50e", "f50e", "f50t", "f50t", "f50t", "f100p", "tvt"] as const;
 
@@ -102,28 +105,35 @@ async function seedOfficegestMock(rows: { name: string; nif: string; phone: stri
     if (i === 5) docs.push({ type: "ft", date: addDays(c.since, 30), total: 8000, description: "Mudança de equipamento", state: "ANU" });
     return { name: c.name, nif: c.nif, phone: c.phone, docs };
   });
-  const body = JSON.stringify({ customers, fail: failNifs.map((nif) => ({ nif, times: 3 })) });
-  // O simulado pode ainda estar a arrancar
-  for (let i = 1; ; i++) {
-    try {
-      const res = await fetch(`${base}/__dev/seed`, { method: "POST", headers: { "content-type": "application/json" }, body });
-      if (!res.ok) throw new Error(`respondeu ${res.status}`);
-      break;
-    } catch (err) {
-      if (i >= 30) throw new Error(`OfficeGest simulado indisponível: ${err instanceof Error ? err.message : err}`);
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
+  await callMock(`${base}/__dev/seed`, { customers, fail: failNifs.map((nif) => ({ nif, times: 3 })) }, "OfficeGest simulado");
   log(`OfficeGest simulado: ${customers.length} clientes com faturas de instalação`);
 }
 
-async function main(): Promise<void> {
-  if (process.env.SEED_DEMO !== "true") return;
-  const [{ n } = { n: 0 }] = await db().select({ n: sql<number>`count(*)::int` }).from(schema.customers);
-  if (n > 0) {
-    log("já há clientes; nada a fazer");
-    return;
+type IxcRow = Record<string, string>;
+type AppyPaySeed = { id: string; reference: string; amount: number; startDate: string; expirationDate: string };
+
+const nextMonth = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + 1);
+  return d.toISOString().slice(0, 10);
+};
+
+/** Pedido a um simulador, que pode ainda estar a arrancar. */
+async function callMock(url: string, body: unknown, what: string): Promise<unknown> {
+  for (let i = 1; ; i++) {
+    try {
+      const res = await fetch(url, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error(`respondeu ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      if (i >= 30) throw new Error(`${what} indisponível: ${err instanceof Error ? err.message : err}`);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   }
+}
+
+/** Planos, clientes e seis meses de referências. */
+async function seedDatabase(): Promise<void> {
   const today = isoDay();
   const people = [...KNOWN, ...generated(64)];
   // Primeiro o OfficeGest simulado: se falhar, a base de dados fica vazia e o próximo arranque tenta outra vez
@@ -199,6 +209,84 @@ async function main(): Promise<void> {
     await db().insert(schema.activity).values(acts);
   }
   log(`${plans.length} planos, ${people.length} clientes e ${paymentCount} referências criados`);
+}
+
+/**
+ * Os mesmos clientes no IXC simulado: um contrato cada e os títulos ainda por pagar (até 30 dias em atraso),
+ * ou o do mês seguinte para quem tem tudo pago. As referências por pagar ficam também na AppyPay simulada.
+ * Só corre com o simulador vazio; os ids dos títulos são fixos, por isso repetir dá o mesmo resultado.
+ */
+async function seedIntegrationsMock(): Promise<void> {
+  const mocks = process.env.DEV_MOCKS_URL?.replace(/\/+$/, "");
+  if (process.env.SEED_INTEGRATIONS_MOCK !== "true" || !mocks) return;
+  const state = (await callMock(`${mocks}/__dev/state`, undefined, "IXC simulado")) as { ixc?: { clientes?: number } };
+  if ((state.ixc?.clientes ?? 0) > 0) {
+    log("IXC simulado já tem dados; nada a fazer");
+    return;
+  }
+  const today = isoDay();
+  for (const p of PLANS) {
+    await db().update(schema.plans).set({ ixcPlanId: p.ixcPlanId }).where(and(eq(schema.plans.code, p.code), isNull(schema.plans.ixcPlanId)));
+  }
+  const plans = new Map((await db().select().from(schema.plans)).map((p) => [p.id, p]));
+  const customers = await db().select().from(schema.customers).orderBy(schema.customers.id);
+  const byCustomer = new Map<number, Payment[]>();
+  for (const p of await db().select().from(schema.payments).orderBy(schema.payments.dueDate, schema.payments.id)) {
+    byCustomer.set(p.customerId, [...(byCustomer.get(p.customerId) ?? []), p]);
+  }
+
+  const ixc: Record<"cliente" | "cliente_contrato" | "fn_areceber", IxcRow[]> = { cliente: [], cliente_contrato: [], fn_areceber: [] };
+  const appypay: AppyPaySeed[] = [];
+  for (const c of customers) {
+    const plan = c.planId ? plans.get(c.planId) : undefined;
+    if (!plan?.ixcPlanId) continue;
+    const mine = byCustomer.get(c.id) ?? [];
+    const inactive = c.status === "inactive" || !!c.disabledAt;
+    const lastPaid = [...mine].reverse().find((p) => p.status === "paid");
+    const contractId = String(c.ixcId + 60_000);
+    ixc.cliente.push({
+      id: String(c.ixcId), razao: c.name, telefone_celular: c.phone ?? "", email: c.email ?? "", cnpj_cpf: c.nif ?? "",
+      bairro: c.zone ?? "", data_cadastro: c.since ?? "", ativo: "S",
+    });
+    ixc.cliente_contrato.push({
+      id: contractId, id_cliente: String(c.ixcId), id_vd_contrato: plan.ixcPlanId, contrato: plan.name,
+      status: inactive ? "I" : "A", status_internet: c.status === "late" ? "FA" : inactive ? "D" : "A",
+      pago_ate_data: lastPaid ? addDays(lastPaid.dueDate, 30) : "", data_ativacao: c.since ?? "",
+    });
+    if (inactive) continue;
+
+    const receivable = (id: string, due: string, n: number) => {
+      const valor = plan.priceKz.toFixed(2);
+      ixc.fn_areceber.push({
+        id, id_cliente: String(c.ixcId), id_contrato: contractId, data_vencimento: due, valor, valor_aberto: valor, status: "A",
+        nparcela: String(n), filial_id: "1", id_carteira_cobranca: "1", id_conta: "1", previsao: "N", tipo_recebimento: "Boleto",
+      });
+    };
+    for (const [i, p] of mine.entries()) {
+      if (p.status === "paid" || p.dueDate < addDays(today, -30)) continue;
+      const id = p.ixcReceivableId ?? String(500_000 + p.id);
+      receivable(id, p.dueDate, i + 1);
+      if (p.status !== "pending") continue;
+      // Referência já emitida: fica ligada ao título e registada na AppyPay simulada
+      const appypayId = p.appypayId ?? randomUUID();
+      if (!p.ixcReceivableId || !p.appypayId) {
+        await db().update(schema.payments).set({ ixcReceivableId: id, appypayId }).where(eq(schema.payments.id, p.id));
+      }
+      appypay.push({ id: appypayId, reference: p.reference, amount: p.amountKz, startDate: p.issuedAt.toISOString(), expirationDate: `${addDays(p.dueDate, 3)}T22:59:59Z` });
+    }
+    const last = mine.at(-1);
+    if (!last || last.status === "paid") receivable(String(800_000 + c.id), last ? nextMonth(last.dueDate) : addDays(today, 5), mine.length + 1);
+  }
+  await callMock(`${mocks}/__dev/seed`, { ixc, appypay }, "IXC/AppyPay simulados");
+  log(`IXC simulado: ${ixc.cliente.length} clientes, ${ixc.fn_areceber.length} títulos em aberto · AppyPay: ${appypay.length} referências`);
+}
+
+async function main(): Promise<void> {
+  if (process.env.SEED_DEMO !== "true") return;
+  const [{ n } = { n: 0 }] = await db().select({ n: sql<number>`count(*)::int` }).from(schema.customers);
+  if (n > 0) log("já há clientes na base de dados");
+  else await seedDatabase();
+  await seedIntegrationsMock();
 }
 
 main()

@@ -1,21 +1,18 @@
 import { CircleCheck, CircleDashed, CircleX, Database, Lock, Play, Plug, Shield, Timer, TriangleAlert } from "lucide-react";
 import type { Metadata } from "next";
 import { canEdit, requireUser } from "@/lib/auth/session";
-import { officegestConfig } from "@/lib/env";
-import { ago, date, dateTime, int } from "@/lib/format";
+import { appypayConfig, cycleMode, env, ixcConfig, officegestConfig, smsConfig } from "@/lib/env";
+import { ago, date, dateTime, int, phoneFmt } from "@/lib/format";
 import { JOBS } from "@/lib/jobs";
 import { typeLabel } from "@/lib/officegest";
 import { jobStatus, officegestLinkStats } from "@/lib/queries";
 import { ActionButton } from "@/components/action-button";
 import { Pill } from "@/components/status";
-import { runJobNow, testOfficegest } from "./actions";
+import { runJobNow, testAppypay, testIxc, testOfficegest, testWesender } from "./actions";
 
 export const metadata: Metadata = { title: "Definições" };
 
 const NEXT = [
-  { code: "IX", name: "IXC Zon", desc: "Clientes, contratos e planos", meta: "Sincronização de clientes e estado do contrato" },
-  { code: "AP", name: "AppyPay", desc: "Referências Multicaixa", meta: "Gerar referências e confirmar pagamentos" },
-  { code: "WS", name: "WeSender", desc: "SMS aos clientes", meta: "Referência, lembretes e link da fatura" },
   { code: "TV", name: "TvBox API", desc: "Boxes, grelhas e canais", meta: "Aprovar chaves, bloquear boxes, publicar grelhas" },
 ];
 
@@ -23,17 +20,31 @@ const OK = { label: "Ligado", tone: "good", Icon: CircleCheck } as const;
 const WARN = { label: "Atenção", tone: "warning", Icon: TriangleAlert } as const;
 const OFF = { label: "Por ligar", tone: "", Icon: CircleDashed } as const;
 
+const MODE_LABEL = { desligado: "desligado", simulacao: "simulação (não envia nada)", ativo: "ativo" } as const;
+
 export default async function DefinicoesPage() {
   const user = await requireUser();
   const admin = canEdit(user, "admin");
   const og = officegestConfig();
+  const ix = ixcConfig();
+  const ap = appypayConfig();
+  const sms = smsConfig();
+  const mode = cycleMode();
   const [jobs, link] = await Promise.all([jobStatus(), og ? officegestLinkStats(og.consumerNif) : Promise.resolve(null)]);
   const sync = jobs.last.get(JOBS.sync.name);
+  const ixSync = jobs.last.get(JOBS.ixcSync.name);
+  const apCheck = jobs.last.get(JOBS.confirm.name);
+  const on = mode !== "desligado";
   const every: Record<string, string> = {
+    [JOBS.ixcSync.name]: ix && on ? `a cada ${ix.syncMinutes} min` : "—",
+    [JOBS.cycle.name]: on ? "a cada 15 min" : "—",
+    [JOBS.confirm.name]: ap ? "a cada 10 min" : "—",
+    [JOBS.settle.name]: mode === "ativo" ? "a cada minuto" : "—",
     [JOBS.issue.name]: "a cada minuto",
     [JOBS.sync.name]: og ? `a cada ${og.syncMinutes} min` : "—",
     [JOBS.expire.name]: "a cada 10 min",
   };
+  const status = (configured: boolean, failed: boolean | undefined) => (!configured ? OFF : failed ? WARN : OK);
 
   return (
     <>
@@ -70,6 +81,66 @@ export default async function DefinicoesPage() {
                       <div className="kv-row"><span>Clientes ligados</span><strong>{link ? `${int(link.linked)} · ${int(link.withNif)} com NIF próprio` : "—"}</strong></div>
                     </div>
                   ) : <small className="text-2" style={{ fontSize: 12 }}>Preencher OFFICEGEST_URL, OFFICEGEST_USER e OFFICEGEST_KEY no .env do servidor.</small>}
+                </div>
+                <div className="int-card">
+                  <div className="int-card-head">
+                    <span className="int-logo">IX</span>
+                    <div style={{ flex: 1, minWidth: 0 }}><strong>IXC Zon</strong><small className="muted" style={{ display: "block", fontSize: 12 }}>Clientes, contratos e títulos a cobrar</small></div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <Pill s={status(!!ix, ixSync?.ok === false)} label={!ix ? "Por configurar" : undefined} />
+                    {ix && admin ? <ActionButton action={testIxc} className="btn xs">Testar ligação</ActionButton> : null}
+                  </div>
+                  {ix ? (
+                    <div className="kv-list">
+                      <div className="kv-row"><span>Servidor</span><strong className="mono">{new URL(ix.url).host}</strong></div>
+                      <div className="kv-row"><span>Ciclo de cobrança</span><strong>{MODE_LABEL[mode]}</strong></div>
+                      <div className="kv-row"><span>Sincronização</span><strong>{on ? `a cada ${ix.syncMinutes} min` : "parada"}</strong></div>
+                      <div className="kv-row"><span>Última</span><strong>{jobs.lastOk.get(JOBS.ixcSync.name) ? ago(jobs.lastOk.get(JOBS.ixcSync.name)!.startedAt) : "nunca"}</strong></div>
+                      <div className="kv-row"><span>Escreve no IXC</span><strong>{mode === "ativo" ? "baixas e título seguinte" : "não"}</strong></div>
+                    </div>
+                  ) : <small className="text-2" style={{ fontSize: 12 }}>Preencher IXC_URL e IXC_TOKEN no .env do servidor.</small>}
+                </div>
+                <div className="int-card">
+                  <div className="int-card-head">
+                    <span className="int-logo">AP</span>
+                    <div style={{ flex: 1, minWidth: 0 }}><strong>AppyPay</strong><small className="muted" style={{ display: "block", fontSize: 12 }}>Referências Multicaixa e pagamentos</small></div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <Pill s={status(!!ap, apCheck?.ok === false)} label={!ap ? "Por configurar" : undefined} />
+                    {ap && admin ? <ActionButton action={testAppypay} className="btn xs">Testar ligação</ActionButton> : null}
+                  </div>
+                  {ap ? (
+                    <div className="kv-list">
+                      <div className="kv-row"><span>Serviço</span><strong className="mono">{new URL(ap.url).host}</strong></div>
+                      <div className="kv-row"><span>Entidade</span><strong className="mono">{ap.entity}</strong></div>
+                      <div className="kv-row"><span>Webhook</span><strong>{ap.webhookSecret && ap.webhookSecret.length >= 24 ? "configurado" : <span className="sms-fail">sem segredo</span>}</strong></div>
+                      <div className="kv-row"><span>Confirmação</span><strong>webhook + a cada 10 min</strong></div>
+                    </div>
+                  ) : <small className="text-2" style={{ fontSize: 12 }}>Preencher as variáveis APPYPAY_* no .env do servidor.</small>}
+                  {ap?.webhookSecret ? (
+                    <small className="text-2" style={{ fontSize: 12 }}>URL a dar à AppyPay: <span className="mono">{env().APP_URL.replace(/\/+$/, "")}/api/appypay/webhook/••••</span> (o segredo está no .env)</small>
+                  ) : null}
+                </div>
+                <div className="int-card">
+                  <div className="int-card-head">
+                    <span className="int-logo">WS</span>
+                    <div style={{ flex: 1, minWidth: 0 }}><strong>WeSender</strong><small className="muted" style={{ display: "block", fontSize: 12 }}>SMS com a referência e lembretes</small></div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <Pill s={sms ? (sms.testPhone ? WARN : OK) : OFF} label={!sms ? "Por configurar" : sms.testPhone ? "Modo de teste" : undefined} />
+                    {sms && admin ? (
+                      <ActionButton action={testWesender} className="btn xs" title={sms.testPhone ? undefined : "Defina SMS_TEST_PHONE para enviar uma SMS de teste"}>Enviar SMS de teste</ActionButton>
+                    ) : null}
+                  </div>
+                  {sms ? (
+                    <div className="kv-list">
+                      <div className="kv-row"><span>Serviço</span><strong className="mono">{new URL(sms.url).host}</strong></div>
+                      <div className="kv-row"><span>Horário</span><strong>das 8h às 20h (Luanda)</strong></div>
+                      <div className="kv-row"><span>Destino</span><strong>{sms.testPhone ? `só ${phoneFmt(sms.testPhone)} (testes)` : "telemóvel do cliente"}</strong></div>
+                      <div className="kv-row"><span>Linha “Dúvidas”</span><strong>{env().SMS_SUPPORT_PHONE?.trim() || "sem"}</strong></div>
+                    </div>
+                  ) : <small className="text-2" style={{ fontSize: 12 }}>Preencher WESENDER_URL e WESENDER_KEY no .env do servidor.</small>}
                 </div>
                 <div className="int-card">
                   <div className="int-card-head">
@@ -129,6 +200,7 @@ export default async function DefinicoesPage() {
                 <div className="kv-row"><span>Palavras-passe</span><strong>scrypt, mínimo 12 caracteres</strong></div>
                 <div className="kv-row"><span>Tentativas de entrada</span><strong>8 falhadas bloqueiam 15 min</strong></div>
                 <div className="kv-row"><span>Links públicos de faturas</span><strong>Assinados, expiram em 30 dias</strong></div>
+                <div className="kv-row"><span>Webhook da AppyPay</span><strong>Segredo no URL; o pagamento é confirmado de novo na AppyPay</strong></div>
                 <div className="kv-row"><span>Perfis</span><strong>Administrador · Operador · Consulta</strong></div>
               </div>
             </div>

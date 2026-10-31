@@ -46,6 +46,8 @@ export const plans = pgTable("plans", {
   speedMbps: integer("speed_mbps"),
   channels: integer("channels"),
   active: boolean("active").notNull().default(true),
+  // Plano (modelo de contrato) correspondente no IXC
+  ixcPlanId: text("ixc_plan_id").unique(),
   createdAt: createdAt(),
 });
 
@@ -66,6 +68,9 @@ export const customers = pgTable("customers", {
   // Id do cliente no OfficeGest. Pode repetir-se se o IXC tiver dois clientes com o mesmo NIF.
   officegestId: integer("officegest_id"),
   officegestCheckedAt: timestamp("officegest_checked_at", { withTimezone: true }),
+  // Desativado à mão no backoffice: sem referências nem SMS, e a sincronização do IXC não o reativa
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  ixcSyncedAt: timestamp("ixc_synced_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -73,6 +78,45 @@ export const customers = pgTable("customers", {
   index("customers_due_idx").on(t.dueDate),
   index("customers_nif_idx").on(t.nif),
   index("customers_officegest_idx").on(t.officegestId),
+]);
+
+/* ---------- Contratos (IXC) ---------- */
+
+// Um cliente do IXC pode ter vários contratos; cada um é cobrado à parte.
+export const contracts = pgTable("contracts", {
+  id: serial("id").primaryKey(),
+  ixcId: integer("ixc_id").notNull().unique(),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  planId: integer("plan_id").references(() => plans.id),
+  ixcPlanId: text("ixc_plan_id"),
+  // Estados tal como vêm do IXC (ex.: A ativo, I inativo; internet A, CA/CM bloqueado, FA atraso)
+  status: text("status").notNull(),
+  internetStatus: text("internet_status"),
+  amountKz: integer("amount_kz"),
+  paidUntil: date("paid_until", { mode: "string" }),
+  activatedAt: date("activated_at", { mode: "string" }),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: createdAt(),
+}, (t) => [index("contracts_customer_idx").on(t.customerId)]);
+
+// Títulos (fn_areceber) do IXC por pagar. Guarda-se o registo original, preciso para dar baixa.
+export const receivables = pgTable("receivables", {
+  id: serial("id").primaryKey(),
+  ixcId: text("ixc_id").notNull().unique(),
+  contractId: integer("contract_id").references(() => contracts.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").references(() => customers.id, { onDelete: "cascade" }),
+  amountKz: integer("amount_kz").notNull(),
+  dueDate: date("due_date", { mode: "string" }).notNull(),
+  // A = em aberto; quando deixa de vir aberto na sincronização fica com closedAt
+  status: text("status").notNull(),
+  nparcela: integer("nparcela"),
+  raw: jsonb("raw").$type<Record<string, string>>().notNull(),
+  seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  createdAt: createdAt(),
+}, (t) => [
+  index("receivables_contract_idx").on(t.contractId),
+  index("receivables_due_idx").on(t.dueDate),
 ]);
 
 /* ---------- Pagamentos (referências Multicaixa) ---------- */
@@ -94,8 +138,24 @@ export const payments = pgTable("payments", {
   invoiceError: text("invoice_error"),
   invoiceNextAttemptAt: timestamp("invoice_next_attempt_at", { withTimezone: true }),
   invoiceClaimedUntil: timestamp("invoice_claimed_until", { withTimezone: true }),
+  // Ligação ao ciclo de cobrança: contrato e título (fn_areceber) do IXC, pagamento na AppyPay
+  contractId: integer("contract_id").references(() => contracts.id),
+  ixcReceivableId: text("ixc_receivable_id"),
+  appypayId: text("appypay_id"),
+  appypayCheckedAt: timestamp("appypay_checked_at", { withTimezone: true }),
+  paidAmountKz: integer("paid_amount_kz"),
+  // Baixa do título no IXC depois do pagamento: tentativas e reserva, como na emissão de faturas
+  ixcSettledAt: timestamp("ixc_settled_at", { withTimezone: true }),
+  ixcSettleAttempts: integer("ixc_settle_attempts").notNull().default(0),
+  ixcSettleError: text("ixc_settle_error"),
+  ixcSettleNextAt: timestamp("ixc_settle_next_at", { withTimezone: true }),
+  ixcSettleClaimedUntil: timestamp("ixc_settle_claimed_until", { withTimezone: true }),
   createdAt: createdAt(),
 }, (t) => [
+  // Um título do IXC só pode ter uma referência por pagar (uma expirada ainda pode ser paga: ver cycle/confirm.ts)
+  uniqueIndex("payments_receivable_open_key").on(t.ixcReceivableId).where(sql`${t.status} = 'pending' and ${t.ixcReceivableId} is not null`),
+  uniqueIndex("payments_appypay_key").on(t.appypayId),
+  index("payments_contract_idx").on(t.contractId),
   index("payments_customer_idx").on(t.customerId),
   index("payments_status_idx").on(t.status),
   index("payments_paid_idx").on(t.paidAt),
@@ -129,6 +189,44 @@ export const invoices = pgTable("invoices", {
   index("invoices_customer_idx").on(t.customerId),
   index("invoices_date_idx").on(t.date),
 ]);
+
+/* ---------- SMS ---------- */
+
+export const smsMessages = pgTable("sms_messages", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").references(() => customers.id, { onDelete: "cascade" }),
+  paymentId: integer("payment_id").references(() => payments.id),
+  kind: text("kind").notNull(), // stage_7 | stage_3 | stage_1 | paid | manual
+  phone: text("phone").notNull(),
+  body: text("body").notNull(),
+  status: text("status").notNull(), // sent | failed
+  providerId: text("provider_id"),
+  error: text("error"),
+  // Enviado para o número de testes em vez do cliente
+  test: boolean("test").notNull().default(false),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // Cada aviso automático sai uma só vez por referência
+  uniqueIndex("sms_payment_kind_key").on(t.paymentId, t.kind).where(sql`${t.kind} <> 'manual' and ${t.status} = 'sent'`),
+  index("sms_customer_idx").on(t.customerId, t.at),
+  index("sms_at_idx").on(t.at),
+]);
+
+/* ---------- Simulação do ciclo ---------- */
+
+// O que o ciclo faria, em modo simulação. Cada execução substitui a anterior.
+export const cyclePreview = pgTable("cycle_preview", {
+  id: serial("id").primaryKey(),
+  kind: text("kind").notNull(), // reference | sms | settle | skip
+  customerId: integer("customer_id").references(() => customers.id, { onDelete: "cascade" }),
+  contractIxcId: integer("contract_ixc_id"),
+  receivableIxcId: text("receivable_ixc_id"),
+  amountKz: integer("amount_kz"),
+  dueDate: date("due_date", { mode: "string" }),
+  detail: text("detail").notNull(),
+  createdAt: createdAt(),
+});
 
 /* ---------- Histórico, agendamentos e estado ---------- */
 
@@ -166,3 +264,6 @@ export type Customer = typeof customers.$inferSelect;
 export type Plan = typeof plans.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;
+export type Contract = typeof contracts.$inferSelect;
+export type Receivable = typeof receivables.$inferSelect;
+export type SmsMessage = typeof smsMessages.$inferSelect;

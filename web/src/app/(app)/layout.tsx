@@ -4,7 +4,7 @@ import { logout } from "@/lib/auth/actions";
 import { requireUser } from "@/lib/auth/session";
 import { ago, initials, int } from "@/lib/format";
 import { JOBS } from "@/lib/jobs";
-import { officegestConfig } from "@/lib/env";
+import { appypayConfig, cycleMode, ixcConfig, officegestConfig } from "@/lib/env";
 import { clientCounts, jobStatus } from "@/lib/queries";
 import { ZonLogo } from "@/components/logo";
 import { MobileNav, SidebarNav } from "@/components/nav";
@@ -20,10 +20,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const sync = jobs.last.get(JOBS.sync.name);
   const ogOk = !!og && (!sync || sync.ok !== false);
   const warnings = (ogOk ? 0 : 1) + [...jobs.last.values()].filter((j) => j.ok === false && j.job !== JOBS.sync.name).length;
+  const mode = cycleMode();
+  /** Ponto e texto de uma integração a partir da sua tarefa principal. */
+  const row = (name: string, configured: boolean, job: string, idle: string) => {
+    if (!configured) return { name, dot: "off", meta: "por configurar" };
+    const last = jobs.last.get(job);
+    const ok = jobs.lastOk.get(job);
+    return { name, dot: last?.ok === false ? "warn" : "", meta: ok ? ago(ok.startedAt) : idle };
+  };
   const rows = [
-    { name: "OfficeGest", dot: ogOk ? "" : "warn", meta: og ? (jobs.lastOk.get(JOBS.sync.name) ? ago(jobs.lastOk.get(JOBS.sync.name)!.startedAt) : "por sincronizar") : "por configurar" },
-    { name: "IXC Zon", dot: "off", meta: "por ligar" },
-    { name: "AppyPay", dot: "off", meta: "por ligar" },
+    row("OfficeGest", !!og, JOBS.sync.name, "por sincronizar"),
+    mode === "desligado" && ixcConfig() ? { name: "IXC Zon", dot: "off", meta: "ciclo desligado" } : row("IXC Zon", !!ixcConfig(), JOBS.ixcSync.name, "por sincronizar"),
+    row("AppyPay", !!appypayConfig(), JOBS.confirm.name, mode === "ativo" ? "à espera" : "sem referências"),
     { name: "TvBox API", dot: "off", meta: "por ligar" },
   ];
 

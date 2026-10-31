@@ -234,6 +234,82 @@ export async function invoicingOfMonth(month: string, issueFrom: string | null) 
   return r ?? { paid: 0, withInvoice: 0, beforeIssueFrom: 0 };
 }
 
+/* ---------------- Cobrança (IXC + AppyPay + SMS) ---------------- */
+
+/** Números do ciclo: títulos a cobrar, referências vivas, o que entrou hoje, SMS e baixas por fazer. */
+export async function cycleOverview(today = isoDay()) {
+  const r = schema.receivables;
+  const s = schema.smsMessages;
+  const [[titles], [refs], [sms], [settle]] = await Promise.all([
+    db().select({
+      inWindow: sql<number>`(count(*) filter (where ${r.dueDate} between ${addDays(today, -30)} and ${addDays(today, 7)}))::int`,
+      overdue: sql<number>`(count(*) filter (where ${r.dueDate} < ${today} and ${r.dueDate} >= ${addDays(today, -30)}))::int`,
+      open: sql<number>`count(*)::int`,
+    }).from(r).innerJoin(schema.contracts, eq(schema.contracts.id, r.contractId))
+      .where(and(isNull(r.closedAt), eq(schema.contracts.status, "A"))),
+    db().select({
+      pending: sql<number>`(count(*) filter (where ${p.status} = 'pending'))::int`,
+      pendingKz: sql<number>`coalesce(sum(${p.amountKz}) filter (where ${p.status} = 'pending'), 0)::float8`,
+      paidToday: sql<number>`(count(*) filter (where ${p.status} = 'paid' and ${p.paidAt} >= ${luanda(today)}))::int`,
+      paidTodayKz: sql<number>`coalesce(sum(${p.amountKz}) filter (where ${p.status} = 'paid' and ${p.paidAt} >= ${luanda(today)}), 0)::float8`,
+    }).from(p).where(sql`${p.ixcReceivableId} is not null`),
+    db().select({
+      sent: sql<number>`(count(*) filter (where ${s.status} = 'sent'))::int`,
+      failed: sql<number>`(count(*) filter (where ${s.status} = 'failed'))::int`,
+      test: sql<number>`(count(*) filter (where ${s.test}))::int`,
+    }).from(s).where(gte(s.at, luanda(today))),
+    db().select({
+      waiting: sql<number>`(count(*) filter (where ${p.ixcSettleAttempts} = 0))::int`,
+      failed: sql<number>`(count(*) filter (where ${p.ixcSettleAttempts} > 0))::int`,
+      lastError: sql<string | null>`(array_agg(${p.ixcSettleError} order by ${p.paidAt} desc) filter (where ${p.ixcSettleError} is not null))[1]`,
+    }).from(p).where(and(eq(p.status, "paid"), sql`${p.ixcReceivableId} is not null`, isNull(p.ixcSettledAt))),
+  ]);
+  return {
+    titles: titles ?? { inWindow: 0, overdue: 0, open: 0 },
+    refs: refs ?? { pending: 0, pendingKz: 0, paidToday: 0, paidTodayKz: 0 },
+    sms: sms ?? { sent: 0, failed: 0, test: 0 },
+    settle: settle ?? { waiting: 0, failed: 0, lastError: null },
+  };
+}
+
+export async function cyclePreviewRows(limit = 200) {
+  return db().select({ row: schema.cyclePreview, customerName: c.name })
+    .from(schema.cyclePreview).leftJoin(c, eq(c.id, schema.cyclePreview.customerId))
+    .orderBy(schema.cyclePreview.dueDate, schema.cyclePreview.id).limit(limit);
+}
+
+export async function recentSms(o: { customerId?: number; limit: number }) {
+  const s = schema.smsMessages;
+  return db().select({ sms: s, customerName: c.name, reference: p.reference })
+    .from(s).leftJoin(c, eq(c.id, s.customerId)).leftJoin(p, eq(p.id, s.paymentId))
+    .where(o.customerId ? eq(s.customerId, o.customerId) : undefined)
+    .orderBy(desc(s.at), desc(s.id)).limit(o.limit);
+}
+
+/** Pagamentos recebidos cuja baixa no IXC falhou, com o erro. */
+export async function settleFailures(limit = 20) {
+  return db().select({ payment: p, customerName: c.name })
+    .from(p).innerJoin(c, eq(c.id, p.customerId))
+    .where(and(eq(p.status, "paid"), isNull(p.ixcSettledAt), sql`${p.ixcSettleAttempts} > 0`))
+    .orderBy(desc(p.paidAt)).limit(limit);
+}
+
+/** Contratos do cliente no IXC e os títulos em aberto de cada um. */
+export async function clientContracts(customerId: number) {
+  const k = schema.contracts;
+  const r = schema.receivables;
+  const [contracts, open] = await Promise.all([
+    db().select({ contract: k, planName: schema.plans.name }).from(k).leftJoin(schema.plans, eq(schema.plans.id, k.planId))
+      .where(eq(k.customerId, customerId)).orderBy(k.status, k.ixcId),
+    db().select({
+      id: r.id, ixcId: r.ixcId, contractId: r.contractId, amountKz: r.amountKz, dueDate: r.dueDate,
+      // Coluna qualificada à mão: dentro do subquery, um "ixc_id" solto seria o dos pagamentos
+      paid: sql<boolean>`exists (select 1 from ${p} x where x.ixc_receivable_id = ${r}.ixc_id and x.status = 'paid')`,
+    }).from(r).where(and(eq(r.customerId, customerId), isNull(r.closedAt))).orderBy(r.dueDate),
+  ]);
+  return { contracts, open };
+}
+
 /* ---------------- Sistema ---------------- */
 
 /** Última execução de cada tarefa e a última que correu bem. */

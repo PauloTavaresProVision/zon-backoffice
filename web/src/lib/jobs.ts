@@ -4,6 +4,10 @@ import { db, pool, schema } from "@/lib/db";
 export type JobResult = { ran: boolean; ok?: boolean; summary?: string };
 
 export const JOBS = {
+  ixcSync: { name: "ixc.sync", label: "Sincronizar o IXC", desc: "Clientes, contratos e títulos em aberto (só leitura)" },
+  cycle: { name: "cycle.run", label: "Referências e avisos por SMS", desc: "Uma referência por título a vencer; SMS a 7, 3 e 1 dia, das 8h às 20h" },
+  confirm: { name: "appypay.check", label: "Confirmar pagamentos na AppyPay", desc: "Verifica as referências por pagar; o webhook confirma logo que o cliente paga" },
+  settle: { name: "ixc.settle", label: "Baixas no IXC", desc: "Liquida o título pago e cria o do período seguinte" },
   issue: { name: "officegest.issue", label: "Emitir faturas no OfficeGest", desc: "Fatura-recibo para cada pagamento confirmado" },
   sync: { name: "officegest.sync", label: "Sincronizar faturas do OfficeGest", desc: "Traz para a conta do cliente todas as faturas, também as emitidas fora do backoffice" },
   expire: { name: "payments.expire", label: "Expirar referências", desc: "Marca como expiradas as referências por pagar depois da validade" },

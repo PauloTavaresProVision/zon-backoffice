@@ -2,7 +2,7 @@ import { ArrowRight, CircleAlert, Clock, Receipt, TrendingDown, TrendingUp, User
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/session";
-import { officegestConfig } from "@/lib/env";
+import { appypayConfig, cycleMode, ixcConfig, officegestConfig, smsConfig } from "@/lib/env";
 import { addDays, ago, date, daysFrom, dec, greeting, initials, int, isoDay, kz, longToday, millions, mkz, MONTHS, MONTHS_LONG, monthLabel, pct, rel, shiftMonth } from "@/lib/format";
 import { JOBS } from "@/lib/jobs";
 import {
@@ -55,11 +55,17 @@ export default async function DashboardPage() {
   const integrations = [
     { name: "OfficeGest", state: og ? "ok" : "warn", desc: "Faturas e PDF", meta: og ? `${int(links?.invoices ?? 0)} faturas · ${lastSync ? `sincronizado ${ago(lastSync.startedAt)}` : "por sincronizar"}` : "Por configurar no servidor" },
     { name: "Base de dados", state: "ok", desc: "PostgreSQL 17 próprio", meta: "Só do Zon Backoffice" },
-    { name: "IXC Zon", state: "off", desc: "Clientes e contratos", meta: "Próxima fase" },
-    { name: "AppyPay", state: "off", desc: "Referências Multicaixa", meta: "Próxima fase" },
-    { name: "WeSender", state: "off", desc: "SMS aos clientes", meta: "Próxima fase" },
+    integration("IXC Zon", "Clientes e contratos", !!ixcConfig(), JOBS.ixcSync.name, "sincronizado"),
+    integration("AppyPay", "Referências Multicaixa", !!appypayConfig(), JOBS.confirm.name, "verificado"),
+    integration("WeSender", "SMS aos clientes", !!smsConfig(), JOBS.cycle.name, "ciclo"),
     { name: "TvBox API", state: "off", desc: "Boxes, grelhas e canais", meta: "Próxima fase" },
   ];
+  function integration(name: string, desc: string, configured: boolean, job: string, verb: string) {
+    if (!configured) return { name, state: "off", desc, meta: "Por configurar no servidor" };
+    if (cycleMode() === "desligado") return { name, state: "off", desc, meta: "Ciclo de cobrança desligado" };
+    const ok = jobs.lastOk.get(job);
+    return { name, state: jobs.last.get(job)?.ok === false ? "warn" : "ok", desc, meta: ok ? `${verb} ${ago(ok.startedAt)}` : "À espera da primeira execução" };
+  }
 
   return (
     <>
@@ -139,7 +145,7 @@ export default async function DashboardPage() {
             )) : <div className="empty">Nenhum contrato a expirar nos próximos 7 dias.</div>}
           </div>
           <div className="card-foot">
-            <span>Lembretes por SMS quando a WeSender estiver ligada</span>
+            <span>{cycleMode() === "ativo" && smsConfig() ? "Referência e lembretes por SMS a 7, 3 e 1 dia" : "Lembretes por SMS quando o ciclo de cobrança estiver ativo"}</span>
             <Link className="link" href="/clientes?estado=expiring">Ver todos <ArrowRight className="ico xs" aria-hidden /></Link>
           </div>
         </article>

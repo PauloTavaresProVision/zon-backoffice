@@ -5,7 +5,9 @@ import { revalidatePath } from "next/cache";
 import { attempt, positiveId, type ActionResult } from "@/lib/action";
 import { logActivity } from "@/lib/activity";
 import { requireRole } from "@/lib/auth/session";
+import { referenceNow, resendReference } from "@/lib/cycle/run";
 import { db, schema } from "@/lib/db";
+import { env } from "@/lib/env";
 import { isoDay } from "@/lib/format";
 import { publicInvoiceUrl } from "@/lib/links";
 import { requireOfficegest, typeLabel } from "@/lib/officegest";
@@ -19,14 +21,17 @@ async function loadCustomer(id: number) {
   return c;
 }
 
-/** Ativa ou desativa o cliente no backoffice. */
+/**
+ * Ativa ou desativa o cliente no backoffice. Desativado, sai do ciclo de cobrança (sem referências nem SMS)
+ * e a sincronização do IXC não o volta a ativar.
+ */
 export async function setClientActive(customerId: number, active: boolean): Promise<ActionResult> {
   return attempt(async () => {
     const user = await requireRole("operador");
     const c = await loadCustomer(positiveId(customerId));
     const on = active === true;
     const status = on ? (c.dueDate && c.dueDate < isoDay() ? "late" : "active") : "inactive";
-    await db().update(schema.customers).set({ status, updatedAt: new Date() }).where(eq(schema.customers.id, c.id));
+    await db().update(schema.customers).set({ status, disabledAt: on ? null : new Date(), updatedAt: new Date() }).where(eq(schema.customers.id, c.id));
     await logActivity({
       kind: on ? "customer.activated" : "customer.deactivated",
       customerId: c.id,
@@ -58,6 +63,47 @@ export async function refreshClientInvoices(customerId: number): Promise<ActionR
     const n = await syncCustomerInvoices({ id: c.id, officegestId: ogId }, client);
     revalidatePath(`/clientes/${c.id}`);
     return n ? `${n} documento${n === 1 ? "" : "s"} atualizado${n === 1 ? "" : "s"} do OfficeGest` : "Sem documentos no OfficeGest para este cliente";
+  });
+}
+
+/** Cria já a referência de um título do IXC (ou reaproveita a que está viva) e envia-a por SMS. */
+export async function generateReferenceNow(receivableId: number): Promise<ActionResult> {
+  return attempt(async () => {
+    const user = await requireRole("operador");
+    const msg = await referenceNow(positiveId(receivableId), user.id);
+    revalidatePath("/clientes/[id]", "page");
+    return msg;
+  });
+}
+
+/** Volta a enviar por SMS uma referência por pagar. */
+export async function resendReferenceSms(paymentId: number): Promise<ActionResult> {
+  return attempt(async () => {
+    const user = await requireRole("operador");
+    const msg = await resendReference(positiveId(paymentId), user.id);
+    revalidatePath("/clientes/[id]", "page");
+    return msg;
+  });
+}
+
+/** Só desenvolvimento: paga a referência na AppyPay simulada, que chama o webhook como a verdadeira. */
+export async function simulatePayment(paymentId: number): Promise<ActionResult> {
+  return attempt(async () => {
+    await requireRole("operador");
+    const mocks = env().DEV_MOCKS_URL?.replace(/\/+$/, "");
+    if (!mocks) throw new Error("Só disponível com os simuladores de desenvolvimento.");
+    const [p] = await db().select().from(schema.payments).where(eq(schema.payments.id, positiveId(paymentId))).limit(1);
+    if (!p || p.status !== "pending") throw new Error("Esta referência já não está por pagar.");
+    const res = await fetch(`${mocks}/__dev/appypay/pay`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reference: p.reference }),
+      signal: AbortSignal.timeout(20_000),
+    }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as { message?: string; webhook?: string } | null;
+    if (!res?.ok) throw new Error(body?.message ?? "O simulador não respondeu.");
+    revalidatePath("/clientes/[id]", "page");
+    return `Pagamento simulado · webhook: ${body?.webhook ?? "sem resposta"}`;
   });
 }
 

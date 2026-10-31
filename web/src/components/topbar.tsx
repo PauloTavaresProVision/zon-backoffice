@@ -10,7 +10,7 @@ import { ThemeButton } from "./theme";
 
 const TITLES: Record<string, string> = {
   dashboard: "Dashboard", clientes: "Clientes", boxes: "Boxes", planos: "Planos", canais: "Canais & grelhas",
-  pagamentos: "Pagamentos", utilizadores: "Utilizadores", definicoes: "Definições",
+  pagamentos: "Pagamentos", cobranca: "Cobrança", utilizadores: "Utilizadores", definicoes: "Definições",
 };
 
 type Results = {

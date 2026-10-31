@@ -2,7 +2,7 @@
 #
 #   cp .env.example .env        (e preencher)
 #   docker compose up -d --build                 produção / servidor
-#   docker compose --profile dev up -d --build   com o OfficeGest simulado e dados de demonstração
+#   docker compose --profile dev up -d --build   com OfficeGest, IXC, AppyPay e WeSender simulados e dados de demonstração
 name: zon-backoffice
 
 x-app-env: &app-env
@@ -69,7 +69,25 @@ services:
     ports:
       - "127.0.0.1:4630:4630"
 
+  # Só com --profile dev: IXC, AppyPay e WeSender simulados (o ciclo de cobrança corre sem tocar nos verdadeiros)
+  integrations-mock:
+    profiles: ["dev"]
+    build: ./dev/integrations-mock
+    restart: unless-stopped
+    environment:
+      MOCK_IXC_TOKEN: ${IXC_TOKEN:-1:demo}
+      MOCK_APPYPAY_CLIENT_ID: ${APPYPAY_CLIENT_ID:-demo-client}
+      MOCK_APPYPAY_CLIENT_SECRET: ${APPYPAY_CLIENT_SECRET:-demo-secret}
+      MOCK_APPYPAY_ENTITY: ${APPYPAY_ENTITY:-11700}
+      MOCK_WESENDER_KEY: ${WESENDER_KEY:-demo-key}
+      MOCK_WEBHOOK_URL: http://web:3000/api/appypay/webhook/${APPYPAY_WEBHOOK_SECRET:-}
+    volumes:
+      - integrations-mock:/data
+    ports:
+      - "127.0.0.1:4640:4640"
+
 volumes:
   pgdata:
   faturas:
   officegest-mock:
+  integrations-mock:

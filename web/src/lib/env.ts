@@ -21,6 +21,36 @@ const schema = z.object({
   // Vazio = emissão desligada (evita duplicar as faturas que o sistema antigo já emitiu).
   OFFICEGEST_ISSUE_FROM: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal("")),
   OFFICEGEST_SYNC_MINUTES: z.coerce.number().int().min(5).default(60),
+
+  // Ciclo de cobrança. "desligado": nada corre. "simulacao": lê o IXC e mostra o que faria,
+  // sem criar referências, sem SMS e sem escrever no IXC. "ativo": faz tudo.
+  CYCLE_MODE: z.enum(["desligado", "simulacao", "ativo"]).default("desligado"),
+  // Na passagem do sistema antigo: só entram no ciclo os títulos que vencem a partir deste dia (AAAA-MM-DD).
+  // Os anteriores já têm referência do sistema antigo e ficam com ele.
+  CYCLE_FROM_DUE: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal("")),
+
+  IXC_URL: z.string().url().optional().or(z.literal("")),
+  IXC_TOKEN: z.string().optional(),
+  IXC_SYNC_MINUTES: z.coerce.number().int().min(15).default(180),
+
+  APPYPAY_URL: z.string().url().optional().or(z.literal("")),
+  APPYPAY_TOKEN_URL: z.string().url().optional().or(z.literal("")),
+  APPYPAY_CLIENT_ID: z.string().optional(),
+  APPYPAY_CLIENT_SECRET: z.string().optional(),
+  APPYPAY_RESOURCE: z.string().optional(),
+  APPYPAY_PAYMENT_METHOD: z.string().optional(),
+  APPYPAY_ENTITY: z.string().default("11700"),
+  // Segredo nosso no URL do webhook (a AppyPay não assina as notificações)
+  APPYPAY_WEBHOOK_SECRET: z.string().optional(),
+
+  WESENDER_URL: z.string().url().optional().or(z.literal("")),
+  WESENDER_KEY: z.string().optional(),
+  // Com um número aqui, todos os SMS vão só para ele (testes)
+  SMS_TEST_PHONE: z.string().optional(),
+  // Linha "Dúvidas:" no fim das SMS (vazio = sem a linha)
+  SMS_SUPPORT_PHONE: z.string().optional(),
+  // Só no perfil dev: URL dos simuladores, ativa o botão "Simular pagamento"
+  DEV_MOCKS_URL: z.string().url().optional().or(z.literal("")),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -72,4 +102,50 @@ export function officegestConfig(): OfficeGestConfig | null {
     issueFrom: e.OFFICEGEST_ISSUE_FROM || null,
     syncMinutes: e.OFFICEGEST_SYNC_MINUTES,
   };
+}
+
+export type CycleMode = Env["CYCLE_MODE"];
+export const cycleMode = (): CycleMode => env().CYCLE_MODE;
+export const cycleFromDue = (): string | null => env().CYCLE_FROM_DUE || null;
+
+export type IxcConfig = { url: string; token: string; syncMinutes: number };
+
+export function ixcConfig(): IxcConfig | null {
+  const e = env();
+  if (!e.IXC_URL || !e.IXC_TOKEN) return null;
+  return { url: e.IXC_URL, token: e.IXC_TOKEN, syncMinutes: e.IXC_SYNC_MINUTES };
+}
+
+export type AppyPayConfig = {
+  url: string;
+  tokenUrl: string;
+  clientId: string;
+  clientSecret: string;
+  resource: string;
+  paymentMethod: string;
+  entity: string;
+  webhookSecret: string | null;
+};
+
+export function appypayConfig(): AppyPayConfig | null {
+  const e = env();
+  if (!e.APPYPAY_URL || !e.APPYPAY_TOKEN_URL || !e.APPYPAY_CLIENT_ID || !e.APPYPAY_CLIENT_SECRET || !e.APPYPAY_PAYMENT_METHOD) return null;
+  return {
+    url: e.APPYPAY_URL.endsWith("/") ? e.APPYPAY_URL : e.APPYPAY_URL + "/",
+    tokenUrl: e.APPYPAY_TOKEN_URL,
+    clientId: e.APPYPAY_CLIENT_ID,
+    clientSecret: e.APPYPAY_CLIENT_SECRET,
+    resource: e.APPYPAY_RESOURCE ?? "",
+    paymentMethod: e.APPYPAY_PAYMENT_METHOD,
+    entity: e.APPYPAY_ENTITY,
+    webhookSecret: e.APPYPAY_WEBHOOK_SECRET || null,
+  };
+}
+
+export type SmsConfig = { url: string; key: string; testPhone: string | null };
+
+export function smsConfig(): SmsConfig | null {
+  const e = env();
+  if (!e.WESENDER_URL || !e.WESENDER_KEY) return null;
+  return { url: e.WESENDER_URL, key: e.WESENDER_KEY, testPhone: e.SMS_TEST_PHONE?.trim() || null };
 }
