@@ -11,6 +11,7 @@
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
   const NB = " ";
   const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+  const MONTHS_LONG = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const int = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, NB);
   const kz = (n) => int(n) + NB + "Kz";
@@ -97,6 +98,7 @@
     libQuery: "", catQuery: "", catCat: "all", catPage: 1,
     chartTable: false, dailyTable: false,
     smsTemplate: "ZON: Olá {nome}, a sua mensalidade de {valor} vence a {validade}. Pague no Multicaixa: Entidade {entidade}, Referência {referencia}. Obrigado!",
+    invoiceFailed: DATA.invoicesMonth.failed,
   };
   const pendingCount = () => DATA.kpis.boxes.pending - state.approved;
   let charts = [];
@@ -223,6 +225,7 @@
     const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
     const name = (ROUTES[parts[0]] || parts[0] === "entrar") ? parts[0] : "dashboard";
     document.body.classList.remove("sheet-open");
+    closeModal();
     if (name === "entrar") { viewLogin(); return; }
     mountShell();
     hideResults();
@@ -618,12 +621,101 @@
     });
   }
 
+  /* ---------------- faturas (OfficeGest) ---------------- */
+  // Documentos desenhados no ecrã, para a pré-visualização abrir pelo número
+  const DOCS = new Map();
+  const regDoc = (d) => { DOCS.set(d.number, d); return d; };
+  const pdfName = (d) => `Fatura_${d.number.replace(/[\s/]/g, "_")}.pdf`;
+
+  // Todas as faturas do cliente no OfficeGest: as que o backoffice emite após cada
+  // pagamento e as emitidas diretamente no OfficeGest (ex.: instalação)
+  function clientInvoices(c) {
+    const p = planById(c.plan);
+    const since = D(c.since);
+    const docs = clientPaymentRows(c).filter((x) => x.status === "paid").map((x, i) => regDoc({
+      type: "FR", label: "Fatura-recibo", number: `FR 2026/${4980 - i * 412 - (c.id % 97)}`,
+      date: x.paid, amount: x.amount, desc: `${shortPlan(p)} · ${x.month.toLowerCase()}`, title: `Mensalidade de ${x.month.toLowerCase()}`,
+      ref: x.ref, client: c.id, origin: "backoffice",
+    }));
+    docs.push(regDoc({
+      type: "FT", label: "Fatura", number: `FT ${since.getFullYear()}/${1180 + (c.id % 311)}`,
+      date: c.since, amount: 15000, desc: "Instalação e ativação do serviço", title: "Instalação e ativação", client: c.id, origin: "officegest",
+    }));
+    return docs;
+  }
+
+  function paymentInvoice(x, i) {
+    if (x.status !== "paid" || x.invoice === "fail") return null;
+    const c = clientById(x.client);
+    const d = D(x.paid);
+    return regDoc({
+      type: "FR", label: "Fatura-recibo", number: `FR 2026/${5132 - i}`, date: x.paid, amount: x.amount,
+      desc: `${shortPlan(planById(c.plan))} · ${MONTHS_LONG[d.getMonth()]} ${d.getFullYear()}`, ref: x.ref, client: c.id, origin: "backoffice",
+    });
+  }
+
+  function invoicePaper(d) {
+    const c = clientById(d.client);
+    return `<div class="paper">
+      <div class="paper-head">
+        <div>${LOGO}<p class="paper-from">ZON · Internet e Televisão<br>Luanda, Angola</p></div>
+        <div class="paper-doc"><small>${d.label}</small><strong>${d.number}</strong><span>Original</span></div>
+      </div>
+      <div class="paper-meta">
+        <div><small>Cliente</small><strong>${esc(c.name)}</strong><span>${esc(c.zone)}, Luanda</span><span>NIF: consumidor final</span></div>
+        <div><small>N.º de cliente</small><strong>IXC ${c.id}</strong><small>Data</small><strong>${date(d.date)}</strong></div>
+        <div><small>Pagamento</small><strong>${d.ref ? "Multicaixa" : "—"}</strong>${d.ref ? `<span>Entidade 11700</span><span>Ref. ${refFmt(d.ref)}</span>` : ""}</div>
+      </div>
+      <table class="paper-lines">
+        <thead><tr><th>Descrição</th><th class="num">Qtd.</th><th class="num">Preço</th><th class="num">Total</th></tr></thead>
+        <tbody><tr><td>${esc(d.desc)}</td><td class="num">1</td><td class="num">${kz(d.amount)}</td><td class="num">${kz(d.amount)}</td></tr></tbody>
+      </table>
+      <div class="paper-total"><span>Total</span><strong>${kz(d.amount)}</strong></div>
+      ${d.type === "FR" ? `<div class="paper-stamp">Pago</div>` : ""}
+      <p class="paper-foot">Pré-visualização do mockup. No sistema real esta janela mostra o PDF devolvido pelo OfficeGest.</p>
+    </div>`;
+  }
+
+  function openInvoice(number) {
+    const d = DOCS.get(number);
+    if (!d) return;
+    const c = clientById(d.client);
+    closeModal();
+    const wrap = document.createElement("div");
+    wrap.id = "modal";
+    wrap.innerHTML = `
+      <div class="modal-backdrop" data-action="close-modal"></div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-head">
+          <div class="modal-title"><strong id="modal-title" class="mono">${d.number}</strong><small>${d.label} · ${esc(c.name)} · ${d.origin === "officegest" ? "emitida no OfficeGest" : "emitida pelo backoffice"}</small></div>
+          <div class="btn-row">
+            <button class="btn sm" data-action="toast" data-arg="Link da fatura ${d.number} enviado por SMS para ${esc(c.phone)}">${icon("send", "sm")}Enviar por SMS</button>
+            <button class="btn sm primary" data-action="toast" data-arg="${pdfName(d)} descarregado">${icon("download", "sm")}Descarregar PDF</button>
+            <button class="icon-btn" data-action="close-modal" aria-label="Fechar">${icon("x")}</button>
+          </div>
+        </div>
+        <div class="modal-body">${invoicePaper(d)}</div>
+      </div>`;
+    document.body.appendChild(wrap);
+    document.body.classList.add("modal-open");
+    refreshIcons();
+    $(".modal-head .icon-btn", wrap).focus();
+  }
+
+  function closeModal() {
+    const m = $("#modal");
+    if (m) m.remove();
+    document.body.classList.remove("modal-open");
+  }
+
   function viewCliente(id) {
     const c = clientById(id);
     if (!c) return { crumbs: ["Clientes", "Não encontrado"], html: `<a class="back-link" href="#/clientes">${icon("arrow-left", "sm")}Clientes</a><div class="card card-pad">Cliente não encontrado.</div>` };
     const st = clientState(c), p = planById(c.plan);
     const pays = clientPaymentRows(c);
     const open = pays.find((x) => x.status === "pending");
+    const invs = clientInvoices(c);
+    const invByRef = new Map(invs.filter((d) => d.ref).map((d) => [d.ref, d]));
     const grid = p.grid ? gridById(p.grid) : null;
     const chs = p.grid ? gridChannels(p.grid) : [];
     const shown = chs.filter((x) => x.logo).slice(0, 10);
@@ -733,8 +825,29 @@
                   <td class="hide-sm"><span class="mono">${refFmt(x.ref)}</span></td>
                   <td class="num o3">${kz(x.amount)}</td>
                   <td class="hide-sm tnum">${date(x.issued)}</td>
-                  <td class="o4 right tnum">${x.paid ? date(x.paid) : `<span class="muted">—</span>`}</td>
+                  <td class="o4 right tnum">${x.paid ? `<div><span>${date(x.paid)}</span>${invByRef.has(x.ref) ? `<button class="link doc-link" data-action="invoice" data-arg="${invByRef.get(x.ref).number}">${invByRef.get(x.ref).number}</button>` : ""}</div>` : `<span class="muted">—</span>`}</td>
                   <td class="o2 right">${pill(PAY_STATE[x.status])}</td>
+                </tr>`).join("")}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-head"><div><h2>Faturas</h2><p class="sub">OfficeGest · ${invs.length} documentos · sincronizado há 6 min</p></div><button class="link" data-action="toast" data-arg="Faturas de ${esc(c.name)} sincronizadas com o OfficeGest">${icon("refresh-cw", "xs")}Atualizar</button></div>
+          <div class="table-wrap mt">
+            <table class="data responsive">
+              <thead><tr><th>Documento</th><th>Descrição</th><th>Data</th><th class="num">Valor</th><th class="inv-cell"></th></tr></thead>
+              <tbody>
+                ${invs.map((d) => `<tr>
+                  <td class="o1"><div><strong class="mono">${d.number}</strong><span class="cell-sub">${d.label}</span></div></td>
+                  <td class="hide-sm"><div><span>${esc(d.title)}</span><span class="cell-sub">${d.origin === "officegest" ? "Emitida no OfficeGest" : `Paga com a ref. ${refFmt(d.ref)}`}</span></div></td>
+                  <td class="o4 right tnum">${date(d.date)}</td>
+                  <td class="num o3"><strong>${kz(d.amount)}</strong></td>
+                  <td class="o2 right inv-cell"><div class="inv-actions">
+                    <button class="btn xs" data-action="invoice" data-arg="${d.number}">${icon("file-text", "xs")}PDF</button>
+                    <button class="icon-btn sm" data-action="toast" data-arg="Link da fatura ${d.number} enviado por SMS para ${esc(c.phone)}" aria-label="Enviar ${d.number} por SMS" title="Enviar por SMS">${icon("send", "sm")}</button>
+                  </div></td>
                 </tr>`).join("")}
               </tbody>
             </table>
@@ -762,6 +875,7 @@
           <div class="card-head"><h2>Histórico</h2></div>
           <div class="feed">
             <div class="feed-item"><span class="feed-ico gold">${icon("message-square")}</span><div><p>SMS com referência <b>${open ? refFmt(open.ref) : "—"}</b> entregue</p><time>29/10/2026, 09:12 · automático</time></div></div>
+            ${invs[0].type === "FR" ? `<div class="feed-item"><span class="feed-ico">${icon("file-text")}</span><div><p>Fatura-recibo <b>${invs[0].number}</b> emitida</p><time>${date(invs[0].date)} · OfficeGest</time></div></div>` : ""}
             <div class="feed-item"><span class="feed-ico good">${icon("circle-check")}</span><div><p>Pagamento de <b>${kz(p.price)}</b> confirmado</p><time>${date(c.lastPay)} · AppyPay</time></div></div>
             ${boxes[0] ? `<div class="feed-item"><span class="feed-ico">${icon("list-video")}</span><div><p>Grelha <b>${esc(gridById(boxes[0].grid).name)} v${gridById(boxes[0].grid).published}</b> sincronizada na box</p><time>28/10/2026, 22:40 · TvBox</time></div></div>` : ""}
             <div class="feed-item"><span class="feed-ico">${icon("user-plus")}</span><div><p>Cliente integrado do IXC</p><time>${date(c.since)} · sincronização</time></div></div>
@@ -1108,14 +1222,16 @@
     const delta = (m.received[11] / m.received[10] - 1) * 100;
     const filters = [
       { id: "all", label: "Todas" }, { id: "paid", label: "Pagas" }, { id: "pending", label: "Pendentes" },
-      { id: "expired", label: "Expiradas" }, { id: "smsfail", label: "SMS falhado" },
+      { id: "expired", label: "Expiradas" }, { id: "smsfail", label: "SMS falhado" }, { id: "noinvoice", label: "Sem fatura" },
     ];
-    const rows = DATA.payments.filter((x) => state.payFilter === "all" || (state.payFilter === "smsfail" ? x.sms === "fail" : x.status === state.payFilter));
+    const invs = new Map(DATA.payments.map((x, i) => [x.ref, paymentInvoice(x, i)]));
+    const rows = DATA.payments.filter((x) => state.payFilter === "all"
+      || (state.payFilter === "smsfail" ? x.sms === "fail" : state.payFilter === "noinvoice" ? x.invoice === "fail" : x.status === state.payFilter));
     const maxDay = DATA.daily.indexOf(Math.max(...DATA.daily));
 
     const html = `
     <div class="page-head">
-      <div><p class="eyebrow">Financeiro</p><h1>Pagamentos</h1><p class="sub">Referências Multicaixa via AppyPay · entidade 11700</p></div>
+      <div><p class="eyebrow">Financeiro</p><h1>Pagamentos</h1><p class="sub">Referências Multicaixa via AppyPay · entidade 11700 · faturas no OfficeGest</p></div>
       <div class="btn-row">
         <button class="btn" data-action="toast" data-arg="Pagamentos de outubro exportados (CSV para contabilidade)">${icon("download", "sm")}Exportar CSV</button>
         <button class="btn primary" data-action="toast" data-arg="Gerar referência avulsa (mockup)">${icon("plus", "sm")}Gerar referência</button>
@@ -1125,6 +1241,16 @@
     <div class="btn-row" style="justify-content:space-between;margin-bottom:16px">
       <div class="month-nav"><button class="icon-btn sm" aria-label="Mês anterior" data-action="toast" data-arg="Setembro 2026 (mockup)">${icon("chevron-left", "sm")}</button><strong>Outubro 2026</strong><button class="icon-btn sm" aria-label="Mês seguinte" disabled>${icon("chevron-right", "sm")}</button></div>
     </div>
+
+    ${state.invoiceFailed ? `
+    <div class="notice" role="status">
+      <span class="notice-ico">${icon("file-warning")}</span>
+      <div class="grow"><strong>${state.invoiceFailed} pagamentos sem fatura</strong><span>O OfficeGest não respondeu. Os clientes já pagaram e a fatura-recibo fica por emitir até repetir.</span></div>
+      <div class="btn-row">
+        <button class="btn sm" data-action="pay-filter" data-arg="noinvoice">Ver</button>
+        <button class="btn sm primary" data-action="retry-invoices">${icon("refresh-cw", "sm")}Repetir agora</button>
+      </div>
+    </div>` : ""}
 
     <article class="card">
       <div class="pay-kpis stat-strip">
@@ -1164,7 +1290,9 @@
                 <td class="num o4 right"><strong>${kz(x.amount)}</strong></td>
                 <td class="hide-sm tnum">${date(x.issued)}</td>
                 <td class="hide-sm">${x.sms === "ok" ? `<span class="sms-ok">${icon("check-check", "xs")}Entregue</span>` : `<span class="sms-fail">${icon("circle-x", "xs")}Falhou</span>`}</td>
-                <td class="hide-sm tnum">${x.paid ? date(x.paid) : `<span class="muted">—</span>`}</td>
+                <td class="hide-sm tnum">${x.paid ? `<div><span>${date(x.paid)}</span>${invs.get(x.ref)
+                  ? `<button class="link doc-link" data-action="invoice" data-arg="${invs.get(x.ref).number}">${invs.get(x.ref).number}</button>`
+                  : `<span class="sms-fail doc-link">${icon("circle-x", "xs")}Fatura por emitir</span>`}</div>` : `<span class="muted">—</span>`}</td>
                 <td class="o2 right">${pill(PAY_STATE[x.status])}</td>
                 <td class="w-act hide-sm">${x.status !== "paid" ? `<button class="icon-btn sm" data-action="toast" data-arg="SMS reenviado para ${esc(c.name)}" aria-label="Reenviar SMS" title="Reenviar SMS">${icon("send", "sm")}</button>` : ""}</td>
               </tr>`;
@@ -1240,7 +1368,7 @@
   }
 
   function viewDefinicoes() {
-    const ints = DATA.integrations.concat([{ name: "OfficeGest", desc: "Faturação certificada", state: "off", meta: "Por configurar" }]);
+    const ints = DATA.integrations;
     const msg = smsPreview(state.smsTemplate);
     const html = `
     <div class="page-head">
@@ -1324,8 +1452,8 @@
         ${LOGO}
         <div>
           <h2>Clientes, boxes, canais e pagamentos. Num só sítio.</h2>
-          <p>O backoffice da ZON junta o IXC, a AppyPay, a WeSender e a gestão das TvBox numa única aplicação — no computador e no telemóvel.</p>
-          <div class="login-pills"><span>Multicaixa</span><span>SMS</span><span>TvBox</span><span>Grelhas</span><span>IXC</span></div>
+          <p>O backoffice da ZON junta o IXC, a AppyPay, o OfficeGest, a WeSender e a gestão das TvBox numa única aplicação — no computador e no telemóvel.</p>
+          <div class="login-pills"><span>Multicaixa</span><span>Faturas</span><span>SMS</span><span>TvBox</span><span>Grelhas</span><span>IXC</span></div>
         </div>
         <small style="color:#80898F">© 2026 ZON · Luanda</small>
       </section>
@@ -1447,6 +1575,17 @@
         break;
       case "box-filter": state.boxFilter = arg; rerender(); break;
       case "pay-filter": state.payFilter = arg; rerender(); break;
+      case "invoice": openInvoice(arg); break;
+      case "close-modal": closeModal(); break;
+      case "retry-invoices": {
+        const n = state.invoiceFailed;
+        DATA.payments.forEach((x) => { if (x.invoice === "fail") delete x.invoice; });
+        state.invoiceFailed = 0;
+        if (state.payFilter === "noinvoice") state.payFilter = "all";
+        rerender();
+        toast(`${n} faturas-recibo emitidas no OfficeGest`, "file-check");
+        break;
+      }
       case "grid-pick": {
         if (arg === state.gridId) break;
         state.gridId = arg;
@@ -1574,7 +1713,7 @@
       const q = $("#q");
       if (q) { e.preventDefault(); $("#topbar").classList.add("search-open"); q.focus(); }
     }
-    if (e.key === "Escape") document.body.classList.remove("sheet-open");
+    if (e.key === "Escape") { document.body.classList.remove("sheet-open"); closeModal(); }
   });
 
   let resizeTimer = null;

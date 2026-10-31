@@ -7,6 +7,7 @@ Junta num só sítio o que hoje está espalhado por três sistemas:
 - **Faturação** (API .NET da Kimaudi): clientes do IXC, referências Multicaixa (AppyPay), SMS (WeSender) e renovações.
 - **TvBox ZON** (API Python): boxes por serial, aprovação de instalações, grelhas versionadas e planos.
 - **IXC Zon**: a fonte de verdade dos contratos e do estado do cliente.
+- **OfficeGest**: as faturas de cada cliente e o PDF. Ver [docs/officegest.md](docs/officegest.md).
 
 ## Mockup do layout
 
@@ -21,11 +22,11 @@ Depois abrir <http://127.0.0.1:4610>. Precisa de servidor porque os logótipos d
 | Ecrã | Rota |
 |---|---|
 | Dashboard | `#/dashboard` |
-| Clientes e ficha do cliente | `#/clientes`, `#/clientes/10432` |
+| Clientes e ficha do cliente (com faturas e PDF) | `#/clientes`, `#/clientes/10418` |
 | Boxes e aprovações | `#/boxes` |
 | Planos | `#/planos` |
 | Grelhas, catálogo e packs de canais | `#/canais`, `#/canais/catalogo`, `#/canais/packs` |
-| Pagamentos por mês | `#/pagamentos` |
+| Pagamentos por mês e faturas por emitir | `#/pagamentos` |
 | Utilizadores e permissões | `#/utilizadores` |
 | Definições (integrações, modelo de SMS, agendamentos) | `#/definicoes` |
 | Entrar | `#/entrar` |

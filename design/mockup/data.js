@@ -66,7 +66,7 @@ window.ZON_DATA = (function () {
     { ref: "932102876", client: 10333, amount: 9900, issued: "2026-10-20", sms: "ok", paid: null, status: "expired", due: "2026-10-27" },
     { ref: "932102540", client: 10377, amount: 9900, issued: "2026-10-17", sms: "ok", paid: null, status: "expired", due: "2026-10-24" },
     { ref: "932102233", client: 10321, amount: 19900, issued: "2026-10-14", sms: "ok", paid: "2026-10-20", status: "paid", due: "2026-10-21" },
-    { ref: "932101968", client: 10243, amount: 12500, issued: "2026-10-11", sms: "ok", paid: "2026-10-17", status: "paid", due: "2026-10-18" },
+    { ref: "932101968", client: 10243, amount: 12500, issued: "2026-10-11", sms: "ok", paid: "2026-10-17", status: "paid", due: "2026-10-18", invoice: "fail" },
     { ref: "932101640", client: 10271, amount: 5500, issued: "2026-10-05", sms: "ok", paid: "2026-10-11", status: "paid", due: "2026-10-12" },
     { ref: "932101302", client: 10361, amount: 7500, issued: "2026-10-08", sms: "ok", paid: "2026-10-14", status: "paid", due: "2026-10-15" },
     { ref: "932100977", client: 10284, amount: 12500, issued: "2026-09-30", sms: "ok", paid: "2026-10-05", status: "paid", due: "2026-10-07" },
@@ -98,6 +98,9 @@ window.ZON_DATA = (function () {
 
   const refsMonth = { issued: 4790, paid: 3744, pending: 812, expired: 234, issuedKz: 51.3, paidKz: 40.1, pendingKz: 8.9, expiredKz: 2.3 };
 
+  // Faturas-recibo emitidas no OfficeGest a seguir a cada pagamento confirmado
+  const invoicesMonth = { issued: 3741, failed: 3 };
+
   const kpis = {
     active: 4812, inactive: 623, late: 287, expiring: 214, total: 5435,
     activeSpark: [4512, 4538, 4566, 4590, 4611, 4640, 4668, 4701, 4733, 4752, 4774, 4812],
@@ -107,6 +110,7 @@ window.ZON_DATA = (function () {
 
   const activity = [
     { icon: "circle-check", tone: "good", html: "Pagamento de <b>19 900 Kz</b> recebido — Mário Kiala", time: "há 4 min · AppyPay" },
+    { icon: "file-text", tone: "", html: "Fatura-recibo <b>FR 2026/5131</b> emitida — Mário Kiala", time: "há 3 min · OfficeGest" },
     { icon: "key-round", tone: "gold", html: "Chave da box <b>ZTV-F812-3D07</b> pedida por Hélder Panzo", time: "há 12 min · Talatona" },
     { icon: "message-square", tone: "", html: "<b>186 SMS</b> de lembrete enviados (D-3)", time: "há 1 h · WeSender" },
     { icon: "list-video", tone: "gold", html: "Grelha <b>TV Total</b> com 4 alterações em rascunho", time: "há 3 h · Paulo Tavares" },
@@ -119,6 +123,7 @@ window.ZON_DATA = (function () {
     { name: "AppyPay", desc: "Referências Multicaixa", state: "ok", meta: "Entidade 11700 · 98 ms" },
     { name: "WeSender", desc: "Envio de SMS", state: "warn", meta: "Saldo: 1 820 SMS" },
     { name: "TvBox API", desc: "Boxes e grelhas", state: "ok", meta: "3 902 boxes ligadas" },
+    { name: "OfficeGest", desc: "Faturas e PDF", state: "ok", meta: "3 741 faturas este mês" },
     { name: "Agendamentos", desc: "Faturação automática", state: "ok", meta: "Próxima execução 00:01" },
   ];
 
@@ -136,8 +141,10 @@ window.ZON_DATA = (function () {
     { name: "Lembretes por SMS", desc: "D-7, D-3 e D-1, entre as 08:00 e as 19:00", every: "a cada 3 h", last: "há 1 h", ok: true },
     { name: "Expirar referências vencidas", desc: "Marca como expiradas e notifica o cliente", every: "a cada 1 min", last: "há 32 s", ok: true },
     { name: "Desbloquear contratos pagos", desc: "Dá baixa no IXC e reativa a box", every: "a cada 1 min", last: "há 32 s", ok: true },
+    { name: "Emitir faturas no OfficeGest", desc: "Fatura-recibo e PDF a seguir a cada pagamento confirmado", every: "a cada 1 min", last: "há 32 s", ok: true },
+    { name: "Sincronizar faturas do OfficeGest", desc: "Traz para a conta do cliente todas as faturas, também as emitidas fora do backoffice", every: "a cada 1 h", last: "há 6 min", ok: true },
     { name: "Sincronizar clientes IXC", desc: "Importa clientes e contratos novos", every: "a cada 3 h", last: "há 4 min", ok: true },
   ];
 
-  return { TODAY, plans, grids, clients, boxes, pendingBoxes, payments, clientPayments, monthly, daily, refsMonth, kpis, activity, integrations, users, jobs };
+  return { TODAY, plans, grids, clients, boxes, pendingBoxes, payments, clientPayments, monthly, daily, refsMonth, invoicesMonth, kpis, activity, integrations, users, jobs };
 })();
