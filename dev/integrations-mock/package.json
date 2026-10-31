@@ -1,0 +1,10 @@
+{
+  "name": "integrations-mock",
+  "version": "0.1.0",
+  "private": true,
+  "description": "IXC, AppyPay e WeSender simulados para desenvolver e testar o Zon Backoffice. Não usar em produção.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}

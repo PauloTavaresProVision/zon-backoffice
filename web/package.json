@@ -1,0 +1,38 @@
+{
+  "name": "zon-backoffice-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 4620",
+    "build": "next build && npm run build:jobs",
+    "build:jobs": "esbuild src/jobs/worker.ts src/jobs/migrate.ts src/jobs/seed.ts --bundle --platform=node --target=node22 --format=cjs --outdir=dist --out-extension:.js=.cjs --external:pg-native --alias:@=./src",
+    "start": "next start -p 4620",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/jobs/migrate.ts",
+    "db:seed": "tsx src/jobs/seed.ts",
+    "worker": "tsx src/jobs/worker.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.4",
+    "geist": "1.9.0",
+    "lucide-react": "1.66.0",
+    "next": "16.4.3",
+    "pg": "8.23.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "server-only": "0.0.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "drizzle-kit": "0.31.11",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}
