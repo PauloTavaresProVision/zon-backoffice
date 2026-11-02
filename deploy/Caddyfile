@@ -1,0 +1,10 @@
+# HTTPS automático (Let's Encrypt) para o domínio em DOMAIN (.env); tudo segue para o web.
+# Sem registo de acessos: o URL do webhook da AppyPay leva o segredo no caminho.
+{$DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy web:3000
+}
