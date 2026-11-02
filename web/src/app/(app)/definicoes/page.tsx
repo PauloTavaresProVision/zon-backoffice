@@ -74,7 +74,7 @@ export default async function DefinicoesPage() {
                     <span className="int-logo">OG</span>
                     <div style={{ flex: 1, minWidth: 0 }}><strong>OfficeGest</strong><small className="muted" style={{ display: "block", fontSize: 12 }}>Faturas e PDF na conta do cliente</small></div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div className="int-status">
                     <Pill s={!og ? OFF : sync?.ok === false ? WARN : OK} label={!og ? "Por configurar" : undefined} />
                     {og && admin ? <ActionButton action={testOfficegest} className="btn xs">Testar ligação</ActionButton> : null}
                   </div>
@@ -94,7 +94,7 @@ export default async function DefinicoesPage() {
                     <span className="int-logo">IX</span>
                     <div style={{ flex: 1, minWidth: 0 }}><strong>IXC Zon</strong><small className="muted" style={{ display: "block", fontSize: 12 }}>Clientes, contratos e títulos a cobrar</small></div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div className="int-status">
                     <Pill s={status(!!ix, ixSync?.ok === false)} label={!ix ? "Por configurar" : undefined} />
                     {ix && admin ? <ActionButton action={testIxc} className="btn xs">Testar ligação</ActionButton> : null}
                   </div>
@@ -113,7 +113,7 @@ export default async function DefinicoesPage() {
                     <span className="int-logo">AP</span>
                     <div style={{ flex: 1, minWidth: 0 }}><strong>AppyPay</strong><small className="muted" style={{ display: "block", fontSize: 12 }}>Referências Multicaixa e pagamentos</small></div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div className="int-status">
                     <Pill s={status(!!ap, apCheck?.ok === false)} label={!ap ? "Por configurar" : undefined} />
                     {ap && admin ? <ActionButton action={testAppypay} className="btn xs">Testar ligação</ActionButton> : null}
                   </div>
@@ -134,7 +134,7 @@ export default async function DefinicoesPage() {
                     <span className="int-logo">WS</span>
                     <div style={{ flex: 1, minWidth: 0 }}><strong>WeSender</strong><small className="muted" style={{ display: "block", fontSize: 12 }}>SMS com a referência e lembretes</small></div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div className="int-status">
                     <Pill s={sms ? (sms.testPhone ? WARN : OK) : OFF} label={!sms ? "Por configurar" : sms.testPhone ? "Modo de teste" : undefined} />
                     {sms && admin ? (
                       <ActionButton action={testWesender} className="btn xs" title={sms.testPhone ? undefined : "Defina SMS_TEST_PHONE para enviar uma SMS de teste"}>Enviar SMS de teste</ActionButton>
@@ -162,7 +162,7 @@ export default async function DefinicoesPage() {
                     <span className="int-logo">TV</span>
                     <div style={{ flex: 1, minWidth: 0 }}><strong>Boxes ZON TV</strong><small className="muted" style={{ display: "block", fontSize: 12 }}>Ativação das boxes, grelha e conta do cliente na TV</small></div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div className="int-status">
                     <Pill s={!https ? WARN : boxes.total ? OK : OFF} label={!https ? "Precisa de HTTPS" : boxes.total ? undefined : "À espera de boxes"} />
                     <Link className="btn xs" href="/boxes">Ver boxes</Link>
                   </div>

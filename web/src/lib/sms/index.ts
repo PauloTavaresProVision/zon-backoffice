@@ -19,7 +19,7 @@ export type SmsInput = {
   userId?: number | null;
 };
 
-export type SmsOutcome = { ok: boolean; error?: string; test: boolean; phone: string | null };
+export type SmsOutcome = { ok: boolean; error?: string; reply?: string; test: boolean; phone: string | null };
 
 const LABEL: Record<string, string> = {
   stage_7: "SMS com a referência",
@@ -39,14 +39,14 @@ export async function sendSms(input: SmsInput): Promise<SmsOutcome> {
   const test = !!cfg?.testPhone;
   const dest = cfg?.testPhone ? angolaMobile(cfg.testPhone) : real;
   let error: string | undefined;
-  let providerId: string | null = null;
+  let reply: string | undefined;
 
   if (!cfg) error = "A WeSender não está configurada.";
   else if (!real) error = "O cliente não tem um telemóvel válido.";
   else if (!dest) error = "SMS_TEST_PHONE não é um telemóvel válido.";
   else {
     try {
-      providerId = await wesenderSend(cfg, dest, input.body);
+      reply = await wesenderSend(cfg, dest, input.body);
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -59,7 +59,8 @@ export async function sendSms(input: SmsInput): Promise<SmsOutcome> {
     phone: dest ?? input.phone ?? "",
     body: input.body,
     status: error ? "failed" : "sent",
-    providerId,
+    // A WeSender não devolve id da mensagem
+    providerId: null,
     error: error ?? null,
     test,
     userId: input.userId ?? null,
@@ -67,13 +68,14 @@ export async function sendSms(input: SmsInput): Promise<SmsOutcome> {
   if (input.paymentId && input.kind !== "paid") {
     await db().update(schema.payments).set({ sms: error ? "failed" : "sent" }).where(eq(schema.payments.id, input.paymentId));
   }
-  const label = (LABEL[input.kind] ?? "SMS") + (input.reference ? ` **${refFmt(input.reference)}**` : "");
+  // Sem cliente nem referência: é a SMS de teste das Definições
+  const label = input.customerId === null && !input.reference ? "SMS de teste" : (LABEL[input.kind] ?? "SMS") + (input.reference ? ` **${refFmt(input.reference)}**` : "");
   await logActivity({
     kind: error ? "sms.failed" : "sms.sent",
     customerId: input.customerId,
     userId: input.userId ?? null,
-    message: error ? `${label} falhou: ${error}` : `${label} enviada${test ? " (para o número de testes)" : ""}`,
+    message: error ? `${label} falhou: ${error}` : `${label} enviada${test ? " (para o número de testes)" : ""}${reply ? ` · WeSender: ${reply}` : ""}`,
     meta: { paymentId: input.paymentId ?? null, kind: input.kind },
   });
-  return { ok: !error, error, test, phone: dest };
+  return { ok: !error, error, reply, test, phone: dest };
 }
