@@ -114,7 +114,7 @@ docker compose up -d --build
 
 A app fica em http://127.0.0.1:4620. O primeiro administrador é criado com `ADMIN_EMAIL`, `ADMIN_NAME` e `ADMIN_PASSWORD`, só se ainda não houver utilizadores.
 
-Num servidor, com HTTPS, cópias de segurança diárias e atualizações: [docs/deploy-contabo.md](docs/deploy-contabo.md).
+Num servidor Ubuntu, um só bloco colado no PuTTY instala tudo, com HTTPS e cópias de segurança diárias: [docs/deploy-contabo.md](docs/deploy-contabo.md).
 
 ### Desenvolvimento com dados de demonstração
 
@@ -163,7 +163,7 @@ Confirmar com a contabilidade antes de ligar:
 
 ```
 compose.yaml            Docker: db, web, worker, (https) o Caddy e (dev) os simuladores
-deploy/                 Servidor: Caddyfile, criar o .env, cópias de segurança e atualizar
+deploy/                 Servidor: instalar de uma vez, Caddyfile, criar o .env, cópias de segurança e atualizar
 docs/deploy-contabo.md  Guia para pôr o backoffice num servidor
 web/                    Aplicação Next.js
   src/app/              Páginas, rotas da API e ações do servidor
