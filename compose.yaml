@@ -55,6 +55,26 @@ services:
       web:
         condition: service_healthy
 
+  # Só com --profile https (servidor): HTTPS automático (Let's Encrypt) para DOMAIN, à frente do web.
+  #   docker compose --profile https up -d --build      ver docs/deploy-contabo.md
+  caddy:
+    profiles: ["https"]
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    depends_on:
+      web:
+        condition: service_healthy
+
   # Só com --profile dev: imita a API do OfficeGest para testar sem tocar na conta verdadeira
   officegest-mock:
     profiles: ["dev"]
@@ -91,3 +111,5 @@ volumes:
   faturas:
   officegest-mock:
   integrations-mock:
+  caddy-data:
+  caddy-config:

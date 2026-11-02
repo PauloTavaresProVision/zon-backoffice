@@ -114,6 +114,8 @@ docker compose up -d --build
 
 A app fica em http://127.0.0.1:4620. O primeiro administrador é criado com `ADMIN_EMAIL`, `ADMIN_NAME` e `ADMIN_PASSWORD`, só se ainda não houver utilizadores.
 
+Num servidor, com HTTPS, cópias de segurança diárias e atualizações: [docs/deploy-contabo.md](docs/deploy-contabo.md).
+
 ### Desenvolvimento com dados de demonstração
 
 ```bash
@@ -133,6 +135,7 @@ Sem Docker, dentro de `web/`: `npm install`, `npm run db:migrate`, `npm run dev`
 | `db` | PostgreSQL 17, só em 127.0.0.1:5450 |
 | `web` | Next.js 16 (porta 3000 no contentor, 127.0.0.1:4620 fora). Ao arrancar aplica as migrações |
 | `worker` | Tarefas automáticas: ciclo de cobrança (ver acima), emitir faturas (cada minuto), sincronizar o OfficeGest (`OFFICEGEST_SYNC_MINUTES`), expirar referências (10 min) |
+| `caddy` | Só no perfil `https` (servidor): HTTPS automático para `DOMAIN`, portas 80 e 443 |
 | `officegest-mock`, `integrations-mock` | Só no perfil `dev` |
 
 ## Passar para produção: atenção à faturação
@@ -159,7 +162,9 @@ Confirmar com a contabilidade antes de ligar:
 ## Estrutura
 
 ```
-compose.yaml            Docker: db, web, worker e (dev) os simuladores
+compose.yaml            Docker: db, web, worker, (https) o Caddy e (dev) os simuladores
+deploy/                 Servidor: Caddyfile, criar o .env, cópias de segurança e atualizar
+docs/deploy-contabo.md  Guia para pôr o backoffice num servidor
 web/                    Aplicação Next.js
   src/app/              Páginas, rotas da API e ações do servidor
   src/lib/officegest/   Cliente da API, sincronização, emissão e PDF
