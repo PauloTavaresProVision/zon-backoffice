@@ -3,6 +3,10 @@
 #   cp .env.example .env        (e preencher)
 #   docker compose up -d --build                 produção / servidor
 #   docker compose --profile dev up -d --build   com OfficeGest, IXC, AppyPay e WeSender simulados e dados de demonstração
+#
+# Segunda instância ao lado (ex.: dados reais só de leitura), com base de dados e volumes próprios:
+#   docker compose -p zon-real --env-file .env.real up -d
+# O .env.real tem de ter APP_ENV_FILE=.env.real e portas diferentes (WEB_PORT, DB_PORT).
 name: zon-backoffice
 
 x-app-env: &app-env
@@ -31,7 +35,7 @@ services:
     build: ./web
     image: zon-backoffice/web:local
     restart: unless-stopped
-    env_file: .env
+    env_file: ${APP_ENV_FILE:-.env}
     environment: *app-env
     volumes:
       - faturas:/data/faturas
@@ -45,7 +49,7 @@ services:
     image: zon-backoffice/web:local
     restart: unless-stopped
     command: ["node", "dist/worker.cjs"]
-    env_file: .env
+    env_file: ${APP_ENV_FILE:-.env}
     environment: *app-env
     volumes:
       - faturas:/data/faturas
