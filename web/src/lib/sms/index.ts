@@ -19,7 +19,7 @@ export type SmsInput = {
   userId?: number | null;
 };
 
-export type SmsOutcome = { ok: boolean; error?: string; test: boolean; phone: string | null };
+export type SmsOutcome = { ok: boolean; error?: string; reply?: string; test: boolean; phone: string | null };
 
 const LABEL: Record<string, string> = {
   stage_7: "SMS com a referência",
@@ -39,14 +39,14 @@ export async function sendSms(input: SmsInput): Promise<SmsOutcome> {
   const test = !!cfg?.testPhone;
   const dest = cfg?.testPhone ? angolaMobile(cfg.testPhone) : real;
   let error: string | undefined;
-  let providerId: string | null = null;
+  let reply: string | undefined;
 
   if (!cfg) error = "A WeSender não está configurada.";
   else if (!real) error = "O cliente não tem um telemóvel válido.";
   else if (!dest) error = "SMS_TEST_PHONE não é um telemóvel válido.";
   else {
     try {
-      providerId = await wesenderSend(cfg, dest, input.body);
+      reply = await wesenderSend(cfg, dest, input.body);
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -59,7 +59,8 @@ export async function sendSms(input: SmsInput): Promise<SmsOutcome> {
     phone: dest ?? input.phone ?? "",
     body: input.body,
     status: error ? "failed" : "sent",
-    providerId,
+    // A WeSender não devolve id da mensagem
+    providerId: null,
     error: error ?? null,
     test,
     userId: input.userId ?? null,
@@ -75,5 +76,5 @@ export async function sendSms(input: SmsInput): Promise<SmsOutcome> {
     message: error ? `${label} falhou: ${error}` : `${label} enviada${test ? " (para o número de testes)" : ""}`,
     meta: { paymentId: input.paymentId ?? null, kind: input.kind },
   });
-  return { ok: !error, error, test, phone: dest };
+  return { ok: !error, error, reply, test, phone: dest };
 }

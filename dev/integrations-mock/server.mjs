@@ -251,15 +251,17 @@ async function pay(b) {
 /* ---------- WeSender ---------- */
 async function wesender(req, res) {
   const b = await readBody(req);
-  if (b.ApiKey !== WESENDER_KEY) return send(res, 200, { succeeded: false, message: "ApiKey inválida", data: null });
+  // Mesmo formato da WeSender verdadeira (https://www.wesender.co.ao/devs.html): Exito, Mensagem, Objeto
+  const fail = (msg) => send(res, 200, { Exito: false, Mensagem: msg, Objeto: null });
+  if (b.ApiKey !== WESENDER_KEY) return fail("ApiKey inválida");
   const to = Array.isArray(b.Destino) ? b.Destino.map(String) : [];
-  if (!to.length || to.some((n) => !/^9\d{8}$/.test(n))) return send(res, 200, { succeeded: false, message: "Destino inválido", data: null });
-  if (shouldFail("wesender")) return send(res, 200, { succeeded: false, message: "Saldo insuficiente (simulado)", data: null });
+  if (!to.length || to.some((n) => !/^9\d{8}$/.test(n))) return fail("Destino inválido");
+  if (shouldFail("wesender")) return fail("Saldo insuficiente (simulado)");
   const id = state.sms.length + 1;
   state.sms.push({ id, to, text: String(b.Mensagem ?? ""), at: luanda() });
   if (state.sms.length > 2000) state.sms = state.sms.slice(-2000);
   save();
-  return send(res, 200, { succeeded: true, message: "Mensagem enviada com sucesso", data: { id } });
+  return send(res, 200, { Exito: true, Mensagem: `Foram enviados ${to.length} de ${to.length} mensagens`, Objeto: { SMS: 0, WhatsApp: 0, FacebookMesseger: 0, Integracoes: 0 } });
 }
 
 /* ---------- dev ---------- */

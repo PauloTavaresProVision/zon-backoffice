@@ -50,7 +50,7 @@ export async function testWesender(): Promise<ActionResult> {
     if (!cfg.testPhone) throw new Error("Defina SMS_TEST_PHONE no servidor para enviar uma SMS de teste.");
     const r = await sendSms({ customerId: null, kind: "manual", phone: cfg.testPhone, body: "Zon Backoffice: SMS de teste. Pode ignorar.", userId: user.id });
     if (!r.ok) throw new Error(`A SMS falhou: ${r.error}`);
-    return `SMS de teste enviada para ${r.phone}`;
+    return `SMS de teste enviada para ${r.phone}${r.reply ? ` · WeSender: ${r.reply}` : ""}`;
   });
 }
 
