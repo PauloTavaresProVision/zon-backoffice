@@ -68,12 +68,13 @@ export async function sendSms(input: SmsInput): Promise<SmsOutcome> {
   if (input.paymentId && input.kind !== "paid") {
     await db().update(schema.payments).set({ sms: error ? "failed" : "sent" }).where(eq(schema.payments.id, input.paymentId));
   }
-  const label = (LABEL[input.kind] ?? "SMS") + (input.reference ? ` **${refFmt(input.reference)}**` : "");
+  // Sem cliente nem referência: é a SMS de teste das Definições
+  const label = input.customerId === null && !input.reference ? "SMS de teste" : (LABEL[input.kind] ?? "SMS") + (input.reference ? ` **${refFmt(input.reference)}**` : "");
   await logActivity({
     kind: error ? "sms.failed" : "sms.sent",
     customerId: input.customerId,
     userId: input.userId ?? null,
-    message: error ? `${label} falhou: ${error}` : `${label} enviada${test ? " (para o número de testes)" : ""}`,
+    message: error ? `${label} falhou: ${error}` : `${label} enviada${test ? " (para o número de testes)" : ""}${reply ? ` · WeSender: ${reply}` : ""}`,
     meta: { paymentId: input.paymentId ?? null, kind: input.kind },
   });
   return { ok: !error, error, reply, test, phone: dest };

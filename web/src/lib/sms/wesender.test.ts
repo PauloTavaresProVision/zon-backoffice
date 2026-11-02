@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readWesenderReply } from "./wesender";
+import { needsSpecialChars, readWesenderReply } from "./wesender";
+
+test("WeSender: CEspeciais só com acentos ou caracteres especiais", () => {
+  assert.equal(needsSpecialChars("Zon Backoffice: SMS de teste. Pode ignorar."), false);
+  assert.equal(needsSpecialChars("Ref. 123 456 789\nValor: 9.900 Kz"), false);
+  assert.equal(needsSpecialChars("Referência por pagar"), true);
+  assert.equal(needsSpecialChars("Dúvidas: 923 000 000"), true);
+  assert.equal(needsSpecialChars("“aspas curvas”"), true);
+});
 
 test("WeSender: só conta como enviada com Exito e todas as mensagens enviadas", () => {
   // Formato da documentação e da API verdadeira ("Mensagem" ou "Message")

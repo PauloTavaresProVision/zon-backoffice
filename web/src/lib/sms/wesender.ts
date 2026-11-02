@@ -25,6 +25,9 @@ export function readWesenderReply(status: number, json: Record<string, unknown> 
   return text;
 }
 
+/** CEspeciais "true" só quando o texto tem acentos ou outros caracteres fora do ASCII; a documentação usa "false". */
+export const needsSpecialChars = (text: string) => /[^\x20-\x7E\n]/.test(text);
+
 /**
  * Envia uma SMS pela WeSender. O número vai em 9 dígitos, como a WeSender o aceita para Angola.
  * Devolve a resposta da WeSender (ex.: "Foram enviados 1 de 1 mensagens").
@@ -35,8 +38,7 @@ export async function wesenderSend(cfg: Pick<SmsConfig, "url" | "key">, phone: s
     res = await fetch(cfg.url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      // CEspeciais: aceita acentos (a mensagem pode ocupar mais SMS)
-      body: JSON.stringify({ ApiKey: cfg.key, Destino: [phone], Mensagem: text, CEspeciais: "true" }),
+      body: JSON.stringify({ ApiKey: cfg.key, Destino: [phone], Mensagem: text, CEspeciais: needsSpecialChars(text) ? "true" : "false" }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
       cache: "no-store",
     });
