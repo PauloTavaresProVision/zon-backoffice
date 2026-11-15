@@ -1,3 +1,5 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import type { AppyPayConfig } from "@/lib/env";
 
 /** Erro da AppyPay ou de rede. A mensagem é segura para mostrar no backoffice. */
@@ -53,6 +55,29 @@ const amountJson = (n: number) => (Number.isInteger(n) ? n : Math.round(n * 100)
 /** Estado "pago" de uma cobrança na AppyPay. */
 export const isPaidStatus = (status: string | null | undefined) => (status ?? "").toLowerCase() === "success";
 
+/**
+ * Pedido HTTP só com os cabeçalhos que lhe damos. O fetch do Node junta outros (Accept-Language: *,
+ * Sec-Fetch-Mode, User-Agent) e a AppyPay responde 500 a pedidos que o gerador em Python faz sem problema.
+ */
+function send(method: string, url: string, headers: Record<string, string>, body?: string): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const data = body === undefined ? undefined : Buffer.from(body, "utf8");
+    const req = (url.startsWith("http:") ? httpRequest : httpsRequest)(url, {
+      method,
+      headers: data ? { ...headers, "Content-Length": String(data.length) } : headers,
+      timeout: TIMEOUT_MS,
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString("utf8") }));
+      res.on("error", reject);
+    });
+    req.on("timeout", () => req.destroy(Object.assign(new Error("timeout"), { name: "TimeoutError" })));
+    req.on("error", reject);
+    req.end(data);
+  });
+}
+
 // Token OAuth2 (client credentials) partilhado no processo até perto de expirar
 const tokens = new Map<string, { value: string; expiresAt: number }>();
 
@@ -88,21 +113,14 @@ export class AppyPayClient {
 
   private async request(method: "GET" | "POST", path: string, body?: Json): Promise<{ status: number; json: Json; text: string }> {
     const token = await this.accessToken();
-    let res: Response;
+    let res: { status: number; text: string };
     try {
-      res = await fetch(this.cfg.url + path, {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-          // A AppyPay só aceita en e pt-BR
-          "Accept-Language": "pt-BR",
-          ...(body ? { "Content-Type": "application/json" } : {}),
-        },
-        body: body ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-        cache: "no-store",
-      });
+      // Os mesmos cabeçalhos do gerador de referências que funciona (sem Accept-Language)
+      res = await send(method, this.cfg.url + path, {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      }, body ? JSON.stringify(body) : undefined);
     } catch (err) {
       const reason = err instanceof Error && err.name === "TimeoutError" ? "não respondeu a tempo" : "não está acessível";
       throw new AppyPayError(`A AppyPay ${reason}.`);
@@ -111,7 +129,7 @@ export class AppyPayClient {
       tokens.delete(this.cfg.clientId);
       throw new AppyPayError("A AppyPay recusou o pedido (autorização).", res.status);
     }
-    const text = await res.text();
+    const text = res.text;
     let json: Json = {};
     try { json = text ? obj(JSON.parse(text)) : {}; } catch {
       throw new AppyPayError(`Resposta inválida da AppyPay (HTTP ${res.status})${text.trim() ? `: ${text.trim().slice(0, 200)}` : ""}.`, res.status);
@@ -136,13 +154,18 @@ export class AppyPayClient {
       references: [{
         referenceNumber: input.referenceNumber,
         currency: "AOA",
-        amounts: [{ amount: amountJson(input.amount), descriptionLine1: input.descriptionLine1, descriptionLine2: input.descriptionLine2 ?? "" }],
+        amounts: [{
+          amount: amountJson(input.amount),
+          descriptionLine1: input.descriptionLine1.slice(0, 40),
+          descriptionLine2: (input.descriptionLine2 || "Entidade 11700").slice(0, 40),
+        }],
         minAmount: amountJson(input.amount),
         maxAmount: amountJson(input.amount),
         startDate: input.startDate,
         expirationDate: input.expirationDate,
       }],
-      createdBy: "Zon Backoffice",
+      // Valor indicado pelo suporte da AppyPay
+      createdBy: "API_Integration",
     });
     const refs = Array.isArray(json.references) ? json.references.map(obj) : [];
     const first = refs[0] ?? {};
