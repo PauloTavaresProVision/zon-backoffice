@@ -86,7 +86,7 @@ export class AppyPayClient {
     return token;
   }
 
-  private async request(method: "GET" | "POST", path: string, body?: Json): Promise<{ status: number; json: Json }> {
+  private async request(method: "GET" | "POST", path: string, body?: Json): Promise<{ status: number; json: Json; text: string }> {
     const token = await this.accessToken();
     let res: Response;
     try {
@@ -95,7 +95,8 @@ export class AppyPayClient {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json",
-          "Accept-Language": "pt-PT",
+          // A AppyPay só aceita en e pt-BR
+          "Accept-Language": "pt-BR",
           ...(body ? { "Content-Type": "application/json" } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -112,13 +113,25 @@ export class AppyPayClient {
     }
     const text = await res.text();
     let json: Json = {};
-    try { json = text ? obj(JSON.parse(text)) : {}; } catch { throw new AppyPayError(`Resposta inválida da AppyPay (HTTP ${res.status}).`, res.status); }
-    return { status: res.status, json };
+    try { json = text ? obj(JSON.parse(text)) : {}; } catch {
+      throw new AppyPayError(`Resposta inválida da AppyPay (HTTP ${res.status})${text.trim() ? `: ${text.trim().slice(0, 200)}` : ""}.`, res.status);
+    }
+    if (res.status >= 500) console.error(`[appypay] ${method} ${path} HTTP ${res.status}: ${text.slice(0, 500)}`);
+    return { status: res.status, json, text };
+  }
+
+  /** Mensagem de erro da AppyPay, venha ela no formato que vier. */
+  private errorMessage(status: number, json: Json, text: string, first: Json = {}): string {
+    const errors = json.errors && typeof json.errors === "object" ? JSON.stringify(json.errors) : null;
+    const msg = asString(obj(json.responseStatus).message) ?? asString(obj(first.responseStatus).message) ?? asString(first.message)
+      ?? asString(json.message) ?? asString(json.detail) ?? asString(json.title) ?? asString(json.error) ?? errors
+      ?? (text.trim() ? text.trim() : null);
+    return `AppyPay: HTTP ${status}${msg ? ` · ${msg.slice(0, 300)}` : ""}`;
   }
 
   /** Cria uma referência Multicaixa. O número é nosso; a AppyPay devolve o id do pagamento. */
   async createReference(input: AppyPayReferenceInput): Promise<AppyPayReferenceCreated> {
-    const { status, json } = await this.request("POST", "references", {
+    const { status, json, text } = await this.request("POST", "references", {
       paymentMethod: this.cfg.paymentMethod,
       references: [{
         referenceNumber: input.referenceNumber,
@@ -134,11 +147,7 @@ export class AppyPayClient {
     const refs = Array.isArray(json.references) ? json.references.map(obj) : [];
     const first = refs[0] ?? {};
     const okFlag = obj(json.responseStatus).successful ?? obj(first.responseStatus).successful;
-    if (status >= 400 || okFlag === false) {
-      const msg = asString(obj(json.responseStatus).message) ?? asString(obj(first.responseStatus).message)
-        ?? asString(first.message) ?? asString(json.message) ?? `HTTP ${status}`;
-      throw new AppyPayError(`AppyPay: ${msg.slice(0, 300)}`, status);
-    }
+    if (status >= 400 || okFlag === false) throw new AppyPayError(this.errorMessage(status, json, text, first), status);
     return {
       paymentId: asString(json.id) ?? asString(first.id),
       referenceNumber: asString(first.referenceNumber) ?? input.referenceNumber,
