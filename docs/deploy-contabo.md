@@ -115,7 +115,7 @@ Dá para fazer com o ciclo em simulação: a referência de teste não tem clien
    `https://<domínio>/api/appypay/webhook/<segredo>`. O segredo vê-se no servidor com `grep APPYPAY_WEBHOOK_SECRET .env`.
    Não mude o URL de uma chave que já existe: as notificações dessa chave deixavam de ir para o sistema que a usa.
 2. **As chaves no servidor.** `nano .env` e preencher `APPYPAY_URL`, `APPYPAY_TOKEN_URL`, `APPYPAY_CLIENT_ID`, `APPYPAY_CLIENT_SECRET`, `APPYPAY_RESOURCE`, `APPYPAY_ENTITY` e `APPYPAY_PAYMENT_METHOD=REF_<chave nova>` (o tipo, `_` e a chave do portal). Depois:
-   `docker compose --profile https up -d --force-recreate web worker`
+   `docker compose up -d --force-recreate web worker`
 3. **No backoffice**, em **Definições → Integrações → AppyPay**, carregar em **Testar ligação**. Depois, em **Definições → Teste da AppyPay**, carregar em **Criar referência de teste**: aparecem a entidade, a referência e o valor.
 4. **Pagar** essa referência no Multicaixa Express ou num ATM.
 5. **Ver o resultado** em **Teste da AppyPay** (recarregar a página):
