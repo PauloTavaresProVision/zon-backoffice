@@ -10,8 +10,8 @@ import { NO_ID, applyTestCharge, findChargesByReference } from "./confirm";
 import { newReferenceNumber, nowUtc } from "./rules";
 
 export const TEST_AMOUNT_KZ = 100;
-/** A chave da AppyPay da Zon tem as referências a vencer em 24 horas. */
-export const TEST_HOURS = 24;
+/** Validade da referência de teste, em dias (até às 23:59:59 UTC do último dia, como o gerador que funciona). */
+export const TEST_DAYS = 7;
 const MAX_OPEN = 3;
 
 export type AppyPayTest = typeof schema.appypayTests.$inferSelect;
@@ -23,7 +23,8 @@ export async function createTestReference(userId: number): Promise<AppyPayTest> 
   if ((count?.open ?? 0) >= MAX_OPEN) throw new Error(`Já há ${MAX_OPEN} referências de teste por pagar. Pague uma ou espere que expire.`);
 
   const issuedAt = new Date();
-  const expiresAt = new Date(issuedAt.getTime() + TEST_HOURS * 3_600_000);
+  // A AppyPay respondeu HTTP 500 a uma validade de 24 horas com hora qualquer; com o fim do dia aceita
+  const expiresAt = new Date(`${new Date(issuedAt.getTime() + TEST_DAYS * 86_400_000).toISOString().slice(0, 10)}T23:59:59Z`);
   let row: AppyPayTest | undefined;
   for (let i = 0; i < 5 && !row; i++) {
     const reference = newReferenceNumber();
@@ -39,8 +40,9 @@ export async function createTestReference(userId: number): Promise<AppyPayTest> 
     const created = await client.createReference({
       referenceNumber: row.reference,
       amount: TEST_AMOUNT_KZ,
-      descriptionLine1: "ZON teste do backoffice",
-      descriptionLine2: "Pagamento de teste",
+      // As mesmas descrições do gerador que funciona
+      descriptionLine1: "Pagamento de teste",
+      descriptionLine2: `Entidade ${cfg.entity}`,
       startDate: nowUtc(issuedAt),
       expirationDate: nowUtc(expiresAt),
     });
@@ -52,7 +54,7 @@ export async function createTestReference(userId: number): Promise<AppyPayTest> 
     await logActivity({
       kind: "appypay.test",
       userId,
-      message: `Teste da AppyPay: referência **${refFmt(t!.reference)}** de **${kz(TEST_AMOUNT_KZ)}** criada (válida ${TEST_HOURS} horas)`,
+      message: `Teste da AppyPay: referência **${refFmt(t!.reference)}** de **${kz(TEST_AMOUNT_KZ)}** criada (válida ${TEST_DAYS} dias)`,
       meta: { testId: t!.id },
     });
     return t!;

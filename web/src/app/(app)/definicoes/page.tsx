@@ -5,7 +5,7 @@ import { canEdit, requireUser } from "@/lib/auth/session";
 import { gridSnapshot, resolveGrid, versionLabel } from "@/lib/boxes/grid";
 import { boxStats } from "@/lib/boxes/queries";
 import { appypayConfig, cycleMode, env, ixcConfig, officegestConfig, smsConfig } from "@/lib/env";
-import { TEST_AMOUNT_KZ, TEST_HOURS, recentTestReferences, testStatusLabel } from "@/lib/cycle/test-reference";
+import { TEST_AMOUNT_KZ, TEST_DAYS, recentTestReferences, testStatusLabel } from "@/lib/cycle/test-reference";
 import { ago, date, dateTime, int, kz, phoneFmt, refFmt } from "@/lib/format";
 import { JOBS } from "@/lib/jobs";
 import { typeLabel } from "@/lib/officegest";
@@ -188,7 +188,7 @@ export default async function DefinicoesPage() {
               <div className="card-head">
                 <div>
                   <h2>Teste da AppyPay</h2>
-                  <p className="sub">Referência de {kz(TEST_AMOUNT_KZ)} sem cliente, válida {TEST_HOURS} horas: pague-a no Multicaixa e veja aqui se a notificação chega. Não toca em clientes, no IXC, em SMS nem em faturas.</p>
+                  <p className="sub">Referência de {kz(TEST_AMOUNT_KZ)} sem cliente, válida {TEST_DAYS} dias: pague-a no Multicaixa e veja aqui se a notificação chega. Não toca em clientes, no IXC, em SMS nem em faturas.</p>
                 </div>
                 {admin ? (
                   <ActionButton action={createAppypayTest} className="btn sm" confirm={`Criar na AppyPay uma referência de teste de ${kz(TEST_AMOUNT_KZ)}?`}>Criar referência de teste</ActionButton>
