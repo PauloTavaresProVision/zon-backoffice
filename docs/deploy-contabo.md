@@ -70,8 +70,23 @@ A seguir constrói e arranca a app (a primeira vez demora alguns minutos), confi
 
 ### Se parar
 
-- **"Estas portas já estão a ser usadas"**: há outra coisa no servidor nas portas 80 ou 443 (outro site, nginx, apache) ou nas portas internas do backoffice. Não arrancou nada. Veja o que é antes de continuar.
-- **"Ainda sem certificado"**: o DNS do domínio ainda não aponta para o servidor, ou as portas 80 e 443 estão fechadas. O resto já está a correr e o Caddy volta a tentar sozinho; para acompanhar: `cd /opt/zon-backoffice && docker compose --profile https logs caddy --tail 20`.
+- **"Estas portas já estão a ser usadas"**: há outra coisa no servidor nas portas internas do backoffice (4620 e 5450), ou nas 80 e 443 fora do Docker (nginx ou apache instalados no servidor). Não arrancou nada. Para as internas, mude `WEB_PORT` e `DB_PORT` no `.env` (ex.: `4779` e `4780`) e volte a correr.
+- **"Ainda sem certificado"**: o DNS do domínio ainda não aponta para o servidor, ou as portas 80 e 443 estão fechadas. O resto já está a correr e o Caddy volta a tentar sozinho; para acompanhar: `cd /opt/zon-backoffice && docker compose logs caddy --tail 20`.
+- **"Falta o Nginx Proxy Manager encaminhar…"**: ver a secção seguinte.
+
+### Servidor com Nginx Proxy Manager (ou outro proxy em Docker)
+
+Se a 80 e a 443 já forem de um contentor (por exemplo o `nginx-proxy-manager`, que serve os outros sites do servidor), o instalador não lhe mexe: não arranca o Caddy e põe o `web` do backoffice na rede Docker desse contentor (`PROXY_NETWORK` e `COMPOSE_FILE` no `.env`). No fim só falta criar o encaminhamento no Nginx Proxy Manager (`http://<IP do servidor>:81`), em **Hosts → Proxy Hosts → Add Proxy Host**:
+
+| Separador | Campo | Valor |
+|---|---|---|
+| Details | Domain Names | o domínio do backoffice |
+| | Scheme · Forward Hostname / IP · Forward Port | `http` · `zon-backoffice-web-1` · `3000` |
+| | Block Common Exploits, Websockets Support | ligados |
+| SSL | SSL Certificate | Request a new SSL Certificate |
+| | Force SSL, HTTP/2 Support | ligados; aceitar os termos da Let's Encrypt e **Save** |
+
+O DNS do domínio tem de apontar para o servidor antes de pedir o certificado. Para confirmar: `curl -fsS https://<domínio>/api/health`.
 - **"A app não arrancou"**: as últimas linhas do `web` ficam no ecrã; corrija o que indicam no `.env` (`nano /opt/zon-backoffice/.env`) e volte a correr `bash /root/zon-instalar.sh`.
 
 O bloco pode correr-se outra vez sem problema: o que já está feito fica como está.
@@ -83,13 +98,15 @@ Os comandos correm dentro de `/opt/zon-backoffice` (`cd /opt/zon-backoffice`).
 | Para | Comando |
 |---|---|
 | Atualizar para a versão nova da main (faz antes uma cópia da base de dados) | `bash deploy/update.sh` |
-| Mudar chaves (AppyPay, OfficeGest, WeSender) | `nano .env` e depois `docker compose --profile https up -d --force-recreate web worker` |
-| Ver o estado | `docker compose --profile https ps` |
+| Mudar chaves (AppyPay, OfficeGest, WeSender) | `nano .env` e depois `docker compose up -d --force-recreate web worker` |
+| Ver o estado | `docker compose ps` |
 | Ver o que fizeram a app e o ciclo | `docker compose logs web worker --tail 30` |
 | Ver erros recentes | `docker compose logs web worker --since 1h \| grep -iE 'erro\|error\|falh'` |
 | Fazer uma cópia já | `bash deploy/backup.sh` |
 | Ver as cópias | `ls -lh backups` |
-| Parar tudo | `docker compose --profile https down` (os dados ficam) |
+| Parar tudo | `docker compose down` (os dados ficam) |
+
+O `.env` já diz ao `docker compose` se o HTTPS é do Caddy do backoffice (`COMPOSE_PROFILES=https`) ou do proxy do servidor (`COMPOSE_FILE` e `PROXY_NETWORK`), por isso os comandos são os mesmos nos dois casos.
 
 Nunca use `docker compose down -v`: o `-v` apaga a base de dados.
 

@@ -87,19 +87,31 @@ if (( mem_mb < 3500 )) && [[ -z $(swapon --show=NAME --noheadings 2>/dev/null) ]
     warn "Não consegui criar o swap: a construção pode falhar por falta de memória."
 fi
 
+# Contentor de outro projeto que já publica a 443 (ex.: Nginx Proxy Manager): se existir, o HTTPS é dele
+edge_container() {
+  docker ps --filter publish=443 --format '{{.Names}}' 2>/dev/null | grep -v '^zon-backoffice-' | head -1 || true
+}
+edge=$(edge_container)
+
 # Só na primeira vez: com os contentores do backoffice já a correr, as portas são dele
 if [[ -z $(docker compose ps -q 2>/dev/null) ]]; then
   step "Portas livres"
   src=.env; [[ -f $src ]] || src=.env.example
-  db_port=$(grep -m1 '^DB_PORT=' "$src" | cut -d= -f2 || true)
-  web_port=$(grep -m1 '^WEB_PORT=' "$src" | cut -d= -f2 || true)
+  db_port=$(grep -m1 '^DB_PORT=' "$src" | cut -d= -f2 | tr -d "'\"" || true)
+  web_port=$(grep -m1 '^WEB_PORT=' "$src" | cut -d= -f2 | tr -d "'\"" || true)
+  ports=("${db_port:-5450}" "${web_port:-4620}")
+  if [[ -n $edge ]]; then
+    echo "A 80 e a 443 são do contentor $edge ($(docker inspect -f '{{.Config.Image}}' "$edge")): o backoffice fica atrás dele, sem HTTPS próprio."
+  else
+    ports=(80 443 "${ports[@]}")
+  fi
   busy=""
-  for p in 80 443 "${db_port:-5450}" "${web_port:-4620}"; do busy+=$(ss -Htlnp "sport = :$p"); done
+  for p in "${ports[@]}"; do busy+=$(ss -Htlnp "sport = :$p"); done
   if [[ -n $busy ]]; then
     printf '%s\n' "$busy"
-    fail "Estas portas já estão a ser usadas neste servidor (acima). Não arranquei nada: veja o que é (pode ser outro site) antes de continuar."
+    fail "Estas portas já estão a ser usadas neste servidor (acima). Não arranquei nada. Se for a ${ports[-1]} ou a ${ports[0]}, mude WEB_PORT ou DB_PORT no .env (nano .env) e volte a correr."
   fi
-  echo "80, 443, ${db_port:-5450} e ${web_port:-4620} livres."
+  echo "${ports[*]} livres."
 fi
 
 step "Configuração (.env)"
@@ -161,12 +173,37 @@ if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: activ
   ufw allow 80/tcp >/dev/null && ufw allow 443/tcp >/dev/null && ufw allow 443/udp >/dev/null
 fi
 
+# Quem trata do HTTPS: o Caddy do backoffice (COMPOSE_PROFILES=https) ou o proxy que já está no servidor.
+# Fica escrito no .env, e o docker compose lê-o sozinho (COMPOSE_PROFILES, COMPOSE_FILE).
+if [[ -z $(env_get COMPOSE_PROFILES) ]]; then
+  if [[ -z $(env_get PROXY_NETWORK) && -n $edge ]]; then
+    net=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$edge" | grep -vxE 'bridge|host|none' | grep . | head -1 || true)
+    [[ -n $net ]] || fail "O $edge está só na rede bridge do Docker. Crie uma rede para os dois:
+  docker network create zon-proxy && docker network connect zon-proxy $edge
+e acrescente ao .env a linha PROXY_NETWORK=zon-proxy (nano .env). Depois volte a correr: bash deploy/install.sh"
+    env_set PROXY_NETWORK "$net"
+  fi
+  if [[ -n $(env_get PROXY_NETWORK) ]]; then
+    [[ -n $(env_get COMPOSE_FILE) ]] || env_set COMPOSE_FILE "compose.yaml:deploy/compose.proxy.yaml"
+    [[ -n $(env_get PROXY_CONTAINER) || -z $edge ]] || env_set PROXY_CONTAINER "$edge"
+  else
+    env_set COMPOSE_PROFILES https
+  fi
+fi
+proxy_net=$(env_get PROXY_NETWORK)
+proxy=$(env_get PROXY_CONTAINER)
+if [[ -n $proxy_net ]]; then
+  step "HTTPS pelo proxy do servidor${proxy:+ ($proxy)}"
+  docker network inspect "$proxy_net" >/dev/null 2>&1 || fail "A rede Docker $proxy_net (PROXY_NETWORK no .env) não existe neste servidor."
+  echo "Sem Caddy próprio. O web entra na rede $proxy_net, onde o proxy o encontra em http://zon-backoffice-web-1:3000."
+fi
+
 dns=$(getent ahostsv4 "$domain" | awk '{ print $1 }' | sort -u | xargs || true)
 mine=" $(hostname -I 2>/dev/null || true) "
 here=false
 for ip in $dns; do if [[ $mine == *" $ip "* ]]; then here=true; fi; done
 if [[ -z $dns ]]; then
-  warn "O $domain ainda não existe no DNS. O certificado só sai quando apontar para este servidor (o Caddy tenta sozinho)."
+  warn "O $domain ainda não existe no DNS. O certificado só sai quando apontar para este servidor."
 elif ! $here; then
   warn "O $domain aponta para $dns, que não é este servidor ($(xargs <<< "$mine")). O certificado só sai quando apontar para aqui."
 fi
@@ -178,7 +215,7 @@ fi
 
 step "Construir e arrancar (a primeira vez demora alguns minutos)"
 started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-if ! docker compose --profile https up -d --build; then
+if ! docker compose up -d --build; then
   docker compose logs web --tail 40 || true
   fail "A app não arrancou: as últimas linhas do web estão acima."
 fi
@@ -186,14 +223,31 @@ docker compose logs web --no-log-prefix --since "$started" 2>/dev/null | grep -E
 
 step "HTTPS"
 https_ok=false
-for _ in $(seq 24); do
+for _ in $(seq "$([[ -n $proxy_net ]] && echo 2 || echo 24)"); do
   if curl -fs -o /dev/null --max-time 5 --resolve "$domain:443:127.0.0.1" "https://$domain/api/health"; then https_ok=true; break; fi
   sleep 5
 done
 if $https_ok; then
   echo "https://$domain responde, com certificado válido."
+elif [[ -n $proxy_net ]]; then
+  server_ip=$(hostname -I 2>/dev/null | awk '{ print $1 }')
+  if [[ -n $proxy ]] && [[ $(docker inspect -f '{{.Config.Image}}' "$proxy" 2>/dev/null) == *nginx-proxy-manager* ]]; then
+    warn "Falta o Nginx Proxy Manager encaminhar o $domain para o backoffice."
+    cat <<EOF
+  Em http://${server_ip:-<IP do servidor>}:81 > Hosts > Proxy Hosts > Add Proxy Host:
+    Details   Domain Names: $domain
+              Scheme: http   Forward Hostname / IP: zon-backoffice-web-1   Forward Port: 3000
+              ligar Block Common Exploits e Websockets Support
+    SSL       SSL Certificate: Request a new SSL Certificate
+              ligar Force SSL e HTTP/2 Support, aceitar os termos da Let's Encrypt e Save
+  O DNS do $domain tem de apontar para este servidor antes de pedir o certificado.
+  Para confirmar no fim:  curl -fsS https://$domain/api/health
+EOF
+  else
+    warn "Falta o proxy${proxy:+ $proxy} encaminhar https://$domain para http://zon-backoffice-web-1:3000 (com certificado para o $domain)."
+  fi
 else
-  docker compose --profile https logs caddy --tail 200 2>/dev/null | grep -iE 'error|challenge' | tail -5 || true
+  docker compose logs caddy --tail 200 2>/dev/null | grep -iE 'error|challenge' | tail -5 || true
   warn "Ainda sem certificado para $domain. Confirme que o DNS aponta para este servidor e que as portas 80 e 443 estão abertas no painel da Contabo; o Caddy volta a tentar sozinho."
 fi
 
@@ -214,7 +268,7 @@ Ciclo:          $(env_get CYCLE_MODE) · faturas: ${issue_from:+a partir de }${i
 Boxes ZON TV:   servidor https://$domain
 
 Mudar chaves (AppyPay, OfficeGest, WeSender):  nano .env   e depois
-                docker compose --profile https up -d --force-recreate web worker
+                docker compose up -d --force-recreate web worker
 Atualizar:      bash deploy/update.sh
-Estado:         docker compose --profile https ps
+Estado:         docker compose ps
 EOF
