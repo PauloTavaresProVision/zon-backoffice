@@ -253,13 +253,14 @@ const OUTCOME_MESSAGE: Record<ConfirmOutcome, string> = {
  * e o estado é sempre lido de novo na AppyPay.
  */
 export async function handleWebhook(body: unknown): Promise<WebhookOutcome> {
-  const a = appypay();
-  if (!a) return { status: 503, message: "AppyPay por configurar" };
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const id = typeof b.id === "string" ? b.id : null;
   const ref = b.reference && typeof b.reference === "object" ? (b.reference as Record<string, unknown>).referenceNumber : null;
   const refNumber = typeof ref === "string" || typeof ref === "number" ? digits(String(ref)) : null;
-  if (!id && !refNumber) return { status: 400, message: "Notificação sem id nem referência" };
+  // Pedido de teste do portal (sem pagamento): responde 200 para o portal aceitar o URL
+  if (!id && !refNumber) return { status: 200, message: "Recebido; sem pagamento para verificar" };
+  const a = appypay();
+  if (!a) return { status: 503, message: "AppyPay por configurar" };
 
   const P = schema.payments;
   const [p] = await db().select().from(P)
@@ -283,7 +284,8 @@ async function handleTestWebhook(client: AppyPayClient, id: string | null, refNu
   const [t] = await db().select().from(T)
     .where(or(...(id ? [eq(T.appypayId, id)] : []), ...(refNumber ? [eq(T.reference, refNumber)] : [])))
     .limit(1);
-  if (!t) return { status: 404, message: "Referência desconhecida" };
+  // Referência que não é do backoffice (outro sistema na mesma aplicação da AppyPay): 200 para a AppyPay não insistir
+  if (!t) return { status: 200, message: "Referência de outro sistema; ignorada" };
   await db().update(T).set({ noticeCount: sql`${T.noticeCount} + 1`, lastNoticeAt: new Date() }).where(eq(T.id, t.id));
   if (t.status === "paid") return { status: 200, message: "Já estava paga" };
   const chargeId = t.appypayId && !t.appypayId.startsWith(NO_ID) ? t.appypayId : id;
