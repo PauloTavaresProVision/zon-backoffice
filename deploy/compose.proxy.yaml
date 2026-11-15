@@ -1,0 +1,15 @@
+# Servidor onde a 80 e a 443 já são de um proxy em Docker (ex.: Nginx Proxy Manager): o backoffice não arranca
+# o Caddy e o web entra na rede desse proxy, que o encontra em http://zon-backoffice-web-1:3000.
+# Ligado pelo .env (o deploy/install.sh trata disto sozinho):
+#   COMPOSE_FILE=compose.yaml:deploy/compose.proxy.yaml
+#   PROXY_NETWORK=<rede Docker do proxy>
+services:
+  web:
+    networks:
+      default: {}
+      proxy: {}
+
+networks:
+  proxy:
+    name: ${PROXY_NETWORK:?Falta PROXY_NETWORK no .env}
+    external: true

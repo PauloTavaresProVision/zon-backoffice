@@ -59,8 +59,8 @@ services:
       web:
         condition: service_healthy
 
-  # Só com --profile https (servidor): HTTPS automático (Let's Encrypt) para DOMAIN, à frente do web.
-  #   docker compose --profile https up -d --build      ver docs/deploy-contabo.md
+  # Só com o perfil https (servidor; no .env COMPOSE_PROFILES=https): HTTPS automático (Let's Encrypt) para DOMAIN,
+  # à frente do web. Num servidor com outro proxy na 80 e 443, fica desligado: ver deploy/compose.proxy.yaml.
   caddy:
     profiles: ["https"]
     image: caddy:2.8-alpine
