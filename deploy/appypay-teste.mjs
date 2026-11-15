@@ -1,6 +1,7 @@
 // Prova da AppyPay a partir do servidor, com as chaves do .env, dentro do contentor web:
 //   docker compose exec -T web node --input-type=module - < deploy/appypay-teste.mjs
-// Cria 2 referências de 100 Kz (A igual ao gerador, B igual ao backoffice) que expiram sozinhas se não forem pagas.
+// Cria 6 referências de 100 Kz que expiram sozinhas se não forem pagas: A igual ao gerador que funciona e cada
+// uma das outras com uma só diferença (validade, descrições, formato das referências dos clientes).
 // Não mostra segredos: só o estado de cada pedido e a resposta da AppyPay.
 import fs from "node:fs";
 import http from "node:http";
@@ -57,9 +58,16 @@ if (!token) process.exit(1);
 const base = e.APPYPAY_URL.endsWith("/") ? e.APPYPAY_URL : `${e.APPYPAY_URL}/`;
 const iso = (d) => `${d.toISOString().slice(0, 19)}Z`;
 const now = new Date();
+const day = (n) => new Date(now.getTime() + n * 864e5).toISOString().slice(0, 10);
+const mes = `${day(0).slice(5, 7)}/${day(0).slice(0, 4)}`;
+// Cada caso muda uma só coisa em relação ao A, que a AppyPay já aceitou
 const casos = [
-  ["A igual ao gerador", "Pagamento de teste", "Entidade 11700", `${new Date(now.getTime() + 7 * 864e5).toISOString().slice(0, 10)}T23:59:59Z`],
-  ["B igual ao backoffice", "ZON teste do backoffice", "Pagamento de teste", iso(new Date(now.getTime() + 24 * 36e5))],
+  ["A controlo, igual ao gerador", "Pagamento de teste", "Entidade 11700", `${day(7)}T23:59:59Z`],
+  ["C validade às 23:59:59 de Luanda", "Pagamento de teste", "Entidade 11700", `${day(7)}T22:59:59Z`],
+  ["D validade de 24 h a uma hora qualquer", "Pagamento de teste", "Entidade 11700", iso(new Date(now.getTime() + 24 * 36e5))],
+  ["E descrições do teste antigo", "ZON teste do backoffice", "Pagamento de teste", `${day(7)}T23:59:59Z`],
+  ["F como um cliente, com acentos", `ZON Premium ${mes}`, "João Conceição", `${day(10)}T22:59:59Z`],
+  ["G como um cliente, sem acentos", `ZON Premium ${mes}`, "Joao Conceicao", `${day(10)}T22:59:59Z`],
 ];
 for (const [nome, d1, d2, exp] of casos) {
   const ref = String(100000000 + Math.floor(Math.random() * 900000000));
