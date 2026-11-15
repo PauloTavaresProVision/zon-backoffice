@@ -52,6 +52,16 @@ const obj = (v: unknown): Json => (v && typeof v === "object" && !Array.isArray(
 /** Valores inteiros vão sem casas decimais, como a AppyPay espera. */
 const amountJson = (n: number) => (Number.isInteger(n) ? n : Math.round(n * 100) / 100);
 
+/**
+ * "REF_<chave>" com a chave em minúsculas: o portal copia-a em maiúsculas, mas a AppyPay só a reconhece
+ * em minúsculas (com maiúsculas responde HTTP 500 "Object reference not set..."). Aceita a chave sem o REF_.
+ */
+export const paymentMethodKey = (v: string) => {
+  const s = v.trim();
+  const m = /^([A-Za-z]+)_(.+)$/.exec(s);
+  return m ? `${m[1]!.toUpperCase()}_${m[2]!.toLowerCase()}` : `REF_${s.toLowerCase()}`;
+};
+
 /** Estado "pago" de uma cobrança na AppyPay. */
 export const isPaidStatus = (status: string | null | undefined) => (status ?? "").toLowerCase() === "success";
 
@@ -150,7 +160,7 @@ export class AppyPayClient {
   /** Cria uma referência Multicaixa. O número é nosso; a AppyPay devolve o id do pagamento. */
   async createReference(input: AppyPayReferenceInput): Promise<AppyPayReferenceCreated> {
     const { status, json, text } = await this.request("POST", "references", {
-      paymentMethod: this.cfg.paymentMethod,
+      paymentMethod: paymentMethodKey(this.cfg.paymentMethod),
       references: [{
         referenceNumber: input.referenceNumber,
         currency: "AOA",
