@@ -31,7 +31,10 @@ export async function expireReferences(): Promise<string> {
   const rows = await db().update(schema.payments).set({ status: "expired" })
     .where(and(eq(schema.payments.status, "pending"), lt(schema.payments.dueDate, isoDay())))
     .returning({ id: schema.payments.id });
-  return `${rows.length} referências expiradas`;
+  const tests = await db().update(schema.appypayTests).set({ status: "expired" })
+    .where(and(eq(schema.appypayTests.status, "pending"), lt(schema.appypayTests.expiresAt, new Date())))
+    .returning({ id: schema.appypayTests.id });
+  return `${rows.length} referências expiradas` + (tests.length ? ` · ${tests.length} de teste` : "");
 }
 
 export type JobKey = keyof typeof JOBS;

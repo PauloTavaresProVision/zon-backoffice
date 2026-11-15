@@ -165,6 +165,34 @@ export const payments = pgTable("payments", {
   index("payments_period_idx").on(t.period),
 ]);
 
+/* ---------- Referências de teste da AppyPay ---------- */
+
+// Valor pequeno, sem cliente: serve para pagar no Multicaixa e ver chegar a notificação da AppyPay.
+// Fora de `payments` de propósito: não conta na cobrança, não dá baixas no IXC nem emite faturas.
+export const appypayTests = pgTable("appypay_tests", {
+  id: serial("id").primaryKey(),
+  entity: text("entity").notNull(),
+  reference: text("reference").notNull().unique(),
+  amountKz: integer("amount_kz").notNull(),
+  appypayId: text("appypay_id"),
+  status: paymentStatusEnum("status").notNull().default("pending"),
+  issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  // Notificações da AppyPay recebidas para esta referência (o webhook)
+  noticeCount: integer("notice_count").notNull().default(0),
+  lastNoticeAt: timestamp("last_notice_at", { withTimezone: true }),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  paidAmountKz: integer("paid_amount_kz"),
+  // "webhook" ou "verificacao" (a verificação periódica)
+  confirmedBy: text("confirmed_by"),
+  checkedAt: timestamp("checked_at", { withTimezone: true }),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+}, (t) => [
+  uniqueIndex("appypay_tests_appypay_key").on(t.appypayId),
+  index("appypay_tests_status_idx").on(t.status),
+]);
+
 /* ---------- Faturas (documentos do OfficeGest) ---------- */
 
 export const invoices = pgTable("invoices", {

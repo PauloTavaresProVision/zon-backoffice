@@ -155,6 +155,36 @@ export class AppyPayClient {
     return toCharge(obj(json.payment ?? json));
   }
 
+  /**
+   * Lista de pagamentos na AppyPay (GET /charges), uma página. A criação de referências não devolve o id
+   * do pagamento, por isso é por aqui, pelo número da referência, que a verificação periódica as encontra.
+   */
+  async listCharges(f: { dateFrom: string; dateTo: string; amountFrom?: number; amountTo?: number; skip: number; limit: number }): Promise<AppyPayCharge[]> {
+    const q = new URLSearchParams({ dateFrom: f.dateFrom, dateTo: f.dateTo, skip: String(f.skip), limit: String(f.limit) });
+    if (f.amountFrom !== undefined) q.set("amountFrom", String(f.amountFrom));
+    if (f.amountTo !== undefined) q.set("amountTo", String(f.amountTo));
+    const { status, json } = await this.request("GET", `charges?${q}`);
+    if (status >= 400) throw new AppyPayError(`AppyPay: ${asString(json.message) ?? `HTTP ${status}`}`, status);
+    const list = Array.isArray(json.payments) ? json.payments : [];
+    return list.map((p) => toCharge(obj(p))).filter((c): c is AppyPayCharge => !!c);
+  }
+
+  /**
+   * Referência registada na AppyPay (GET /reference/<número>). A criação é assíncrona (202): isto diz se a
+   * AppyPay já a ativou. Não diz se foi paga.
+   */
+  async getReference(referenceNumber: string): Promise<{ isActive: boolean | null; entity: string | null; dueDate: string | null } | null> {
+    const { status, json } = await this.request("GET", `reference/${encodeURIComponent(referenceNumber)}`);
+    if (status === 404) return null;
+    if (status >= 400) throw new AppyPayError(`AppyPay: ${asString(json.message) ?? `HTTP ${status}`}`, status);
+    const r = obj(json.reference ?? json);
+    return {
+      isActive: typeof r.isActive === "boolean" ? r.isActive : null,
+      entity: asString(r.entity),
+      dueDate: asString(r.dueDate) ?? asString(r.expirationDate),
+    };
+  }
+
   /** Para o botão "Testar ligação": só pede um token. */
   async ping(): Promise<void> {
     await this.accessToken();

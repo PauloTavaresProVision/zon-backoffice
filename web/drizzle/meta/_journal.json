@@ -29,6 +29,13 @@
       "when": 1793459797318,
       "tag": "0003_canais_grelhas",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794737841123,
+      "tag": "0004_appypay_testes",
+      "breakpoints": true
     }
   ]
 }

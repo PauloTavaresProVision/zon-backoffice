@@ -49,7 +49,8 @@ async function cycle(): Promise<void> {
 
 async function confirm(): Promise<void> {
   if (!appypay() || (await minutesSinceLastRun(JOBS.confirm.name)) < EVERY_MIN.confirm) return;
-  if (!(await hasBacklog("select 1 from payments where status = 'pending' and appypay_id is not null"))) return;
+  if (!(await hasBacklog(`select 1 from payments where status = 'pending' and appypay_id is not null
+    union all select 1 from appypay_tests where status = 'pending'`))) return;
   await run("confirm", TASKS.confirm, true);
 }
 

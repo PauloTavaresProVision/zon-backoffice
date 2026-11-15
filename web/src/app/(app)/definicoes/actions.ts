@@ -1,10 +1,14 @@
 "use server";
 
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { attempt, type ActionResult } from "@/lib/action";
+import { attempt, positiveId, type ActionResult } from "@/lib/action";
 import { appypay } from "@/lib/appypay";
 import { requireRole } from "@/lib/auth/session";
-import { smsConfig } from "@/lib/env";
+import { createTestReference, lookupTestReference } from "@/lib/cycle/test-reference";
+import { db, schema } from "@/lib/db";
+import { env, smsConfig } from "@/lib/env";
+import { kz, refFmt } from "@/lib/format";
 import { ixc } from "@/lib/ixc";
 import { JOBS, runJob } from "@/lib/jobs";
 import { officegest } from "@/lib/officegest";
@@ -38,6 +42,46 @@ export async function testAppypay(): Promise<ActionResult> {
     if (!a) throw new Error("A AppyPay não está configurada no .env do servidor.");
     await a.client.ping();
     return "Ligação à AppyPay OK · credenciais aceites";
+  });
+}
+
+/** Referência de 100 Kz sem cliente, para pagar no Multicaixa e ver a notificação da AppyPay chegar. */
+export async function createAppypayTest(): Promise<ActionResult> {
+  return attempt(async () => {
+    const user = await requireRole("admin");
+    const t = await createTestReference(user.id);
+    revalidatePath("/definicoes");
+    return `Referência de teste criada · entidade ${t.entity} · referência ${refFmt(t.reference)} · ${kz(t.amountKz)}`;
+  });
+}
+
+export async function lookupAppypayTest(testId: number): Promise<ActionResult> {
+  return attempt(async () => {
+    await requireRole("admin");
+    const msg = await lookupTestReference(positiveId(testId));
+    revalidatePath("/definicoes");
+    return msg;
+  });
+}
+
+/** Só desenvolvimento: paga a referência de teste na AppyPay simulada, que chama o webhook. */
+export async function simulateAppypayTest(testId: number): Promise<ActionResult> {
+  return attempt(async () => {
+    await requireRole("admin");
+    const mocks = env().DEV_MOCKS_URL?.replace(/\/+$/, "");
+    if (!mocks) throw new Error("Só disponível com os simuladores de desenvolvimento.");
+    const [t] = await db().select().from(schema.appypayTests).where(eq(schema.appypayTests.id, positiveId(testId))).limit(1);
+    if (!t || t.status !== "pending") throw new Error("Esta referência já não está por pagar.");
+    const res = await fetch(`${mocks}/__dev/appypay/pay`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reference: t.reference }),
+      signal: AbortSignal.timeout(20_000),
+    }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as { message?: string; webhook?: string } | null;
+    if (!res?.ok) throw new Error(body?.message ?? "O simulador não respondeu.");
+    revalidatePath("/definicoes");
+    return `Pagamento simulado · webhook: ${body?.webhook ?? "sem resposta"}`;
   });
 }
 
