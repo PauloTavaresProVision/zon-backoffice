@@ -5,13 +5,14 @@ import { canEdit, requireUser } from "@/lib/auth/session";
 import { gridSnapshot, resolveGrid, versionLabel } from "@/lib/boxes/grid";
 import { boxStats } from "@/lib/boxes/queries";
 import { appypayConfig, cycleMode, env, ixcConfig, officegestConfig, smsConfig } from "@/lib/env";
-import { ago, date, dateTime, int, phoneFmt } from "@/lib/format";
+import { TEST_AMOUNT_KZ, TEST_DAYS, recentTestReferences, testStatusLabel } from "@/lib/cycle/test-reference";
+import { ago, date, dateTime, int, kz, phoneFmt, refFmt } from "@/lib/format";
 import { JOBS } from "@/lib/jobs";
 import { typeLabel } from "@/lib/officegest";
 import { jobStatus, officegestLinkStats } from "@/lib/queries";
 import { ActionButton } from "@/components/action-button";
 import { Pill } from "@/components/status";
-import { runJobNow, testAppypay, testIxc, testOfficegest, testWesender } from "./actions";
+import { createAppypayTest, lookupAppypayTest, runJobNow, simulateAppypayTest, testAppypay, testIxc, testOfficegest, testWesender } from "./actions";
 
 export const metadata: Metadata = { title: "Definições" };
 
@@ -29,12 +30,14 @@ export default async function DefinicoesPage() {
   const ap = appypayConfig();
   const sms = smsConfig();
   const mode = cycleMode();
-  const [jobs, link, boxes, snap] = await Promise.all([
+  const [jobs, link, boxes, snap, tests] = await Promise.all([
     jobStatus(),
     og ? officegestLinkStats(og.consumerNif) : Promise.resolve(null),
     boxStats(),
     gridSnapshot(),
+    ap ? recentTestReferences() : Promise.resolve([]),
   ]);
+  const devMocks = !!env().DEV_MOCKS_URL;
   const grid = resolveGrid(snap, null);
   const appUrl = new URL(env().APP_URL);
   const https = appUrl.protocol === "https:";
@@ -61,6 +64,7 @@ export default async function DefinicoesPage() {
       <div className="settings">
         <nav className="settings-nav" aria-label="Secções das definições">
           <a href="#integracoes" className="on"><Plug className="ico sm" aria-hidden />Integrações</a>
+          {ap ? <a href="#teste-appypay"><CircleCheck className="ico sm" aria-hidden />Teste da AppyPay</a> : null}
           <a href="#agendamentos"><Timer className="ico sm" aria-hidden />Agendamentos</a>
           <a href="#seguranca"><Shield className="ico sm" aria-hidden />Segurança</a>
         </nav>
@@ -178,6 +182,52 @@ export default async function DefinicoesPage() {
               </div>
             </div>
           </article>
+
+          {ap ? (
+            <article className="card" id="teste-appypay">
+              <div className="card-head">
+                <div>
+                  <h2>Teste da AppyPay</h2>
+                  <p className="sub">Referência de {kz(TEST_AMOUNT_KZ)} sem cliente, válida {TEST_DAYS} dias: pague-a no Multicaixa e veja aqui se a notificação chega. Não toca em clientes, no IXC, em SMS nem em faturas.</p>
+                </div>
+                {admin ? (
+                  <ActionButton action={createAppypayTest} className="btn sm" confirm={`Criar na AppyPay uma referência de teste de ${kz(TEST_AMOUNT_KZ)}?`}>Criar referência de teste</ActionButton>
+                ) : null}
+              </div>
+              {!ap.webhookSecret || ap.webhookSecret.length < 24 ? (
+                <p className="sms-fail" style={{ fontSize: 13, margin: "8px 0 0" }}>Sem APPYPAY_WEBHOOK_SECRET no .env: a notificação da AppyPay não entra. Só a verificação de 10 em 10 min confirma o pagamento.</p>
+              ) : null}
+              {tests.length ? (
+                <div className="jobs mt">
+                  {tests.map((t) => {
+                    const paid = t.status === "paid";
+                    const expired = !paid && (t.status === "expired" || t.expiresAt.getTime() < Date.now());
+                    return (
+                      <div className={`job${admin ? " act" : ""}`} key={t.id}>
+                        <div>
+                          <strong>Entidade <span className="mono">{t.entity}</span> · Referência <span className="mono">{refFmt(t.reference)}</span> · {kz(t.amountKz)}</strong>
+                          <small>{testStatusLabel(t)}{paid && t.confirmedBy ? ` · confirmada ${t.confirmedBy === "webhook" ? "pela notificação" : "pela verificação"}` : ""}</small>
+                          <span className="job-sum">
+                            Notificação da AppyPay: {t.noticeCount ? `recebida ${dateTime(t.lastNoticeAt)}${t.noticeCount > 1 ? ` (${int(t.noticeCount)} vezes)` : ""}` : "ainda não chegou"}
+                            {t.checkedAt ? ` · verificada na AppyPay ${ago(t.checkedAt)}` : ""}
+                          </span>
+                        </div>
+                        {paid ? <span className="pill good"><CircleCheck className="ico" aria-hidden />Paga</span>
+                          : expired ? <span className="pill plain">Expirada</span>
+                            : <span className="pill warning"><Timer className="ico" aria-hidden />Por pagar</span>}
+                        {admin ? (
+                          <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            <ActionButton action={lookupAppypayTest.bind(null, t.id)} className="btn xs">Perguntar à AppyPay</ActionButton>
+                            {devMocks && !paid && !expired ? <ActionButton action={simulateAppypayTest.bind(null, t.id)} className="btn xs">Simular pagamento</ActionButton> : null}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : <p className="text-2" style={{ fontSize: 13, margin: "8px 0 0" }}>Ainda não há referências de teste.</p>}
+            </article>
+          ) : null}
 
           <article className="card" id="agendamentos">
             <div className="card-head"><div><h2>Agendamentos</h2><p className="sub">Tarefas automáticas, corridas pelo worker</p></div></div>

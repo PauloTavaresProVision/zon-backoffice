@@ -3,7 +3,7 @@
 //
 //   /ixc/webservice/v1/<tabela>   cliente, cliente_contrato, fn_areceber, fn_areceber_recebimentos_baixas_novo
 //   /appypay/token                OAuth2 (client credentials)
-//   /appypay/v2.0/...             references, charges/<id>
+//   /appypay/v2.0/...             references (202 sem id, como a verdadeira), charges, charges/<id>, reference/<n>
 //   /wesender/envio/apikey        envio de SMS (ficam numa caixa de saída)
 //   /__dev/...                    dados iniciais, pagar uma referência, ver SMS, simular falhas
 import { createServer } from "node:http";
@@ -204,16 +204,34 @@ async function appypay(req, res, path) {
       description: r.amounts[0].descriptionLine1 ?? "", createdDate: now, updatedDate: now, paidAt: null,
     };
     save();
-    return send(res, 200, {
-      id,
-      references: [{ id, referenceNumber: String(r.referenceNumber), entity: APPYPAY_ENTITY, expirationDate: r.expirationDate, responseStatus: { successful: true, status: "Pending" } }],
-      responseStatus: { successful: true, message: "Referência criada" },
-    });
+    // Como a AppyPay verdadeira: 202, pedido aceite para processamento, sem o id do pagamento
+    return send(res, 202, { references: [{ referenceNumber: String(r.referenceNumber), code: 101, message: "The request has been accepted for processing." }] });
+  }
+  // Lista de pagamentos, com os filtros que o backoffice usa (datas de criação, valores, paginação)
+  if (path === "/v2.0/charges" && req.method === "GET") {
+    const q = new URL(req.url, "http://localhost").searchParams;
+    const num = (k) => (q.has(k) ? Number(q.get(k)) : null);
+    const from = q.get("dateFrom") ? Date.parse(q.get("dateFrom")) : null;
+    const to = q.get("dateTo") ? Date.parse(q.get("dateTo")) : null;
+    const [amountFrom, amountTo] = [num("amountFrom"), num("amountTo")];
+    const skip = num("skip") ?? 0;
+    const limit = num("limit") ?? 50;
+    const list = Object.values(state.appypay.charges)
+      .filter((c) => (from === null || Date.parse(c.createdDate) >= from) && (to === null || Date.parse(c.createdDate) <= to))
+      .filter((c) => (amountFrom === null || c.amount >= amountFrom) && (amountTo === null || c.amount <= amountTo))
+      .sort((a, b) => b.createdDate.localeCompare(a.createdDate));
+    return send(res, 200, { payments: list.slice(skip, skip + limit).map(chargeJson) });
   }
   const m = /^\/v2\.0\/charges\/([\w-]+)$/.exec(path);
   if (m && req.method === "GET") {
     const c = state.appypay.charges[m[1]];
     return c ? send(res, 200, { payment: chargeJson(c) }) : send(res, 404, { message: "Pagamento não encontrado" });
+  }
+  const ref = /^\/v2\.0\/reference\/(\d+)$/.exec(path);
+  if (ref && req.method === "GET") {
+    const c = Object.values(state.appypay.charges).find((x) => x.referenceNumber === ref[1]);
+    if (!c) return send(res, 404, { message: "Referência não encontrada" });
+    return send(res, 200, { referenceNumber: c.referenceNumber, entity: c.entity, dueDate: c.expirationDate, isActive: c.status !== "Success" && !(c.expirationDate && new Date(c.expirationDate) < new Date()) });
   }
   return send(res, 404, { message: "Not found" });
 }
@@ -230,8 +248,9 @@ async function pay(b) {
   c.updatedDate = new Date().toISOString();
   if (b.amount) c.amount = Number(b.amount); // para testar valores errados
   save();
-  let webhook = "sem MOCK_WEBHOOK_URL";
-  if (WEBHOOK_URL) {
+  let webhook = b.notify === false ? "não enviado (notify: false)" : "sem MOCK_WEBHOOK_URL";
+  // notify: false paga sem avisar o webhook, para testar a verificação periódica
+  if (WEBHOOK_URL && b.notify !== false) {
     try {
       const r = await fetch(WEBHOOK_URL, {
         method: "POST",

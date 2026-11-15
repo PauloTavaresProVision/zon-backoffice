@@ -107,8 +107,29 @@ ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw allow 443/udp 
 
 Se o SSH do servidor não estiver na porta 22, troque `OpenSSH` pela porta (ex.: `ufw allow 2222/tcp`), senão o PuTTY perde o acesso.
 
+## 3. Testar a AppyPay com um pagamento de 100 Kz
+
+Dá para fazer com o ciclo em simulação: a referência de teste não tem cliente, não envia SMS, não escreve no IXC e não emite fatura.
+
+1. **Uma aplicação e um webhook só do backoffice**, no portal da AppyPay (`app.appypay.co.ao`):
+   - **Aplicações → Adicionar aplicação**: método **Referência**, nome `Zon Backoffice`.
+   - **Integração → Webhooks → Novo webhook**: em **Adesão** escolher só `Zon Backoffice`, nome `Zon Backoffice` e o URL
+     `https://<domínio>/api/appypay/webhook/<segredo>`. O segredo vê-se no servidor com `grep APPYPAY_WEBHOOK_SECRET .env`.
+
+   Assim só chegam ao backoffice as notificações das referências dele. Não mexa nas outras aplicações nem no webhook que já existe: são do sistema que hoje cobra.
+2. **As chaves no servidor.** `nano .env` e preencher `APPYPAY_URL`, `APPYPAY_TOKEN_URL`, `APPYPAY_CLIENT_ID`, `APPYPAY_CLIENT_SECRET`, `APPYPAY_RESOURCE`, `APPYPAY_ENTITY` e `APPYPAY_PAYMENT_METHOD=REF_<chave da aplicação Zon Backoffice>` (o tipo, `_` e a chave). Depois:
+   `docker compose up -d --force-recreate web worker`
+3. **No backoffice**, em **Definições → Integrações → AppyPay**, carregar em **Testar ligação**. Depois, em **Definições → Teste da AppyPay**, carregar em **Criar referência de teste**: aparecem a entidade, a referência e o valor.
+4. **Pagar** essa referência no Multicaixa Express ou num ATM.
+5. **Ver o resultado** em **Teste da AppyPay** (recarregar a página):
+   - «Notificação da AppyPay: recebida» e «Paga · confirmada pela notificação»: o webhook funciona.
+   - Paga, mas «Notificação: ainda não chegou»: a verificação de 10 em 10 min apanhou-a; rever o URL da chave no portal.
+   - **Perguntar à AppyPay** mostra o que a AppyPay diz da referência (ativa ou não) e da lista de pagamentos.
+
+Se a notificação não entrar, os erros do webhook aparecem em `docker compose logs web --since 1h | grep -i appypay`.
+
 ## Mais tarde
 
 - **Boxes ZON TV**: o servidor a pôr na app é `https://backoffice.zon.ao`.
-- **Webhook da AppyPay** (só ao passar o ciclo para `ativo`): `https://backoffice.zon.ao/api/appypay/webhook/<segredo>`, com o segredo de `APPYPAY_WEBHOOK_SECRET` no `.env` (`grep APPYPAY_WEBHOOK_SECRET .env`).
+- **Webhook da AppyPay** ao passar o ciclo para `ativo`: o mesmo URL da chave do passo 3.
 - **Passar a cobrar e a faturar**: ver "Passar do sistema antigo para o backoffice" e "Passar para produção" no README. Só depois de desligar as tarefas do sistema antigo.
